@@ -47,3 +47,7 @@ coverage.xml
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Model files
+*.onnx
+*.onnx.data
