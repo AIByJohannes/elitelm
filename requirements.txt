@@ -1,0 +1,4 @@
+onnxruntime-qnn
+transformers
+ipykernel
+ipywidgets
