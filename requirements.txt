@@ -1,4 +1,2 @@
-onnxruntime-qnn
-transformers
-ipykernel
-ipywidgets
+onnxruntime-genai
+huggingface-hub[cli]
