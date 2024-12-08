@@ -1,5 +1,4 @@
 onnxruntime-qnn
 transformers
-torch-directml
 ipykernel
 ipywidgets
