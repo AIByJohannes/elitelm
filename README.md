@@ -1,6 +1,17 @@
 # Elite LLM
 Inference server for PCs with Hexagon NPU (part of the X Elite chip)
 
+## Roadmap
+- [x] Inference script
+    - [x] Load model
+    - [x] Load input
+    - [x] Run inference
+    - [ ] Customize script
+- [ ] Inference server
+    - [ ] Create FastAPI server
+    - [ ] Create endpoint for inference
+    - [ ] Connect inference script to server
+
 ## Requirements
 - Python 3.11
 
