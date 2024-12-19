@@ -1,2 +1,5 @@
 onnxruntime-genai
 huggingface-hub[cli]
+fastapi
+uvicorn
+pydantic
