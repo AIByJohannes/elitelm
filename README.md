@@ -5,7 +5,8 @@ Inference server for PCs with Hexagon NPU (part of the X Elite chip)
 - [x] Inference script
     - [x] Load model
     - [x] Load input
-    - [x] Run inference
+    - [x] Run inference on CPU
+    - [ ] Run inference on NPU
     - [ ] Customize script
 - [ ] Inference server
     - [ ] Create FastAPI server
