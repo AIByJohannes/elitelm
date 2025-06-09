@@ -28,5 +28,5 @@ huggingface-cli download onnx-community/Llama-3.2-3B-Instruct-ONNX --include cpu
 ```
 
 ```bash
-python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 -k 40 -p 0.95 -t 0.8 -r 1.0
+python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 -k 40 -p 0.95 -t 0.8 -r 1.0 -b QnnHtp.dll
 ```
