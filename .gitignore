@@ -30,6 +30,7 @@ coverage.xml
 # IDE specific files
 .idea/
 .vscode/
+.vs/
 *.sublime-workspace
 *.sublime-project
 
