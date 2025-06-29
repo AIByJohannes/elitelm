@@ -1,4 +1,4 @@
-# Elite LLM
+# EliteLM
 Inference server for PCs with Hexagon NPU (part of the X Elite chip)
 
 ## Roadmap
