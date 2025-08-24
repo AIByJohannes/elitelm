@@ -51,28 +51,11 @@
     huggingface-cli download onnx-community/Llama-3.2-3B-Instruct-ONNX --include cpu_and_mobile/* --local-dir .
     ```
 
-## Usage
-
-To start the interactive question-answering script, run the following command:
+## Run inference script
 
 ```bash
-python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 -b QnnHtp.dll
+python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 -k 40 -p 0.95 -t 0.8 -r 1.0
 ```
-
-Once the script is running, you can type your questions and press Enter to get a response from the model.
-
-### Configuration
-
-You can customize the generation process using the following command-line arguments:
-
-| Argument | Description | Default |
-| --- | --- | --- |
-| `-m`, `--model` | Path to the model directory. | (required) |
-| `-b`, `--backend` | Path to the QNN backend library (`.dll`). | (required) |
-| `-k`, `--top_k` | Top-k sampling parameter. | 40 |
-| `-p`, `--top_p` | Top-p (nucleus) sampling parameter. | 0.95 |
-| `-t`, `--temperature` | Temperature for sampling. | 0.8 |
-| `-r`, `--repetition_penalty` | Repetition penalty. | 1.0 |
 
 ## Project Structure
 
