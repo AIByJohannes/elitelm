@@ -6,22 +6,23 @@
 
 *   **Hardware Accelerated Inference:** Leverages the Hexagon NPU for efficient and fast inference.
 *   **ONNX Runtime:** Uses the ONNX Runtime to run models, ensuring compatibility and performance.
-*   **Llama-3 Support:** Comes with a script to run the Llama-3 model out of the box.
+*   **Llama-3 Support:** Comes with an interactive chat client to run the Llama-3 model out of the box.
 *   **Interactive QA:** Includes an interactive command-line interface for asking questions to the model.
 *   **Customizable Generation:** Allows you to control the generation process with parameters like temperature, top-k, and top-p.
 
 ## Roadmap
 
-- [x] **Inference Script (`llama3-qa.py`)**
+- [x] **Core Runtime (`elitelm.py`)**
     - [x] Load model and tokenizer.
-    - [x] Implement interactive prompt loop.
     - [x] Run inference on CPU.
     - [x] **Run inference on NPU.**
     - [ ] **Add support for more LLMs.**
+- [x] **Interactive CLI (`chat_cli.py`)**
+    - [x] Implement interactive prompt loop.
 - [ ] **Inference Server (`api.py`)**
     - [ ] **Create a FastAPI application.**
     - [ ] **Implement an OpenAI Chat Completions compatible endpoint that takes a prompt and returns a response.**
-    - [ ] **Integrate functionality from `llama3-qa.py` into the server.**
+    - [ ] **Integrate functionality from `elitelm.py` into the server.**
     - [ ] **Implement error handling.**
     - [ ] **Add logging.**
 - [ ] **Advanced Features**
@@ -55,19 +56,21 @@
 
     Edit `llama3-qa.yaml` to point to your downloaded model directory and tweak the `generation` values to your preference.
 
-## Run inference script
+## Run the chat client
 
 The CLI now reads all options from the YAML file. With the default file name you can simply run:
 
 ```bash
-python llama3-qa.py
+python chat_cli.py
 ```
 
 Alternatively, pass an explicit path if you keep multiple configs around:
 
 ```bash
-python llama3-qa.py --config configs/my-experiment.yaml
+python chat_cli.py --config configs/my-experiment.yaml
 ```
+
+To embed EliteLM into another application, import `ChatSession` from `elitelm` and drive generation directly.
 
 ### Running on the Hexagon NPU
 
@@ -85,16 +88,18 @@ The script will automatically update the DLL search path and configure the QNN e
 
 ```
 .
+├── api.py
+├── chat_cli.py
 ├── docs
 │   └── onnx_npu_docs.md
-├── api.py
-├── llama3-qa.py
+├── elitelm.py
 ├── README.md
 └── requirements.txt
 ```
 
 *   **`docs/`**: Contains documentation files.
 *   **`api.py`**: The entry point for the upcoming FastAPI server.
-*   **`llama3-qa.py`**: A command-line script for interactive question answering.
+*   **`chat_cli.py`**: Interactive command-line client built on top of the core runtime.
+*   **`elitelm.py`**: Core runtime module for configuration loading and text generation.
 *   **`README.md`**: This file.
-*   **`requirements.txt`**: A list of Python dependencies.
+*   **`requirements.txt`**: Python dependencies.

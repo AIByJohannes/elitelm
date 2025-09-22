@@ -4,23 +4,30 @@ This document provides a more detailed look into the architecture and components
 
 ## Project Overview
 
-EliteLM is designed to be a lightweight and high-performance inference server for large language models, with a focus on leveraging the Qualcomm Hexagon NPU for hardware acceleration. The project is divided into two main parts:
+EliteLM is designed to be a lightweight and high-performance inference server for large language models, with a focus on leveraging the Qualcomm Hexagon NPU for hardware acceleration. The project is divided into three main parts:
 
-1.  **A command-line interface (CLI)** for interactive testing and experimentation (`llama3-qa.py`).
-2.  **A FastAPI server** for exposing the model's functionality as a web API (`api.py`).
+1.  **A reusable runtime module** that handles configuration parsing, model loading, and token generation (`elitelm.py`).
+2.  **A command-line interface (CLI)** for interactive testing and experimentation built on top of the runtime (`chat_cli.py`).
+3.  **A FastAPI server** for exposing the model's functionality as a web API (`api.py`).
 
 ## Core Components
 
-### `llama3-qa.py`
+### `elitelm.py`
 
-This script is the heart of the project. Instead of CLI flags, it reads its runtime settings from a YAML file (defaults to `llama3-qa.yaml`). The config captures the model path, generation hyper-parameters, runtime toggles, and the optional QNN block used when targeting the Hexagon NPU. Provide `--config path/to/file.yaml` to switch between different profiles during development.
+This module houses the core runtime logic. It provides utilities for configuring the QNN execution provider, loading ONNX Runtime GenAI models, and orchestrating chat-style text generation. The primary entry point is the `ChatSession` class, which keeps track of chat history and performs streaming generation.
 
-#### The `QA` class
+#### The `ChatSession` class
 
-*   **`__init__(self, model_dir, backend)`:** The constructor initializes the `QA` class. It loads the tokenizer and the ONNX model, and sets up the inference session with the specified backend.
-*   **`load_model(self)`:** This method loads the tokenizer from the model directory.
-*   **`create_inference_session(self, backend)`:** This method creates an ONNX Runtime inference session. It configures the session to use the QNN Execution Provider with the specified backend library (`.dll`).
-*   **`generate(self, prompt, top_k, top_p, temperature, repetition_penalty)`:** This method takes a prompt and generation parameters, and returns the generated text. It tokenizes the input, runs the model, and decodes the output.
+*   **`__init__(self, args)`**: Loads the model, tokenizer, and tokenizer stream based on a parsed configuration namespace. It also prepares generation search options and tracks chat history.
+*   **`generate(self, user_text, *, timings=False, on_token=None)`**: Builds the prompt (including any previous turns), feeds it into the model, and streams decoded pieces back through the optional callback while collecting timing statistics. Returns a `GenerationResult` with the assistant reply and metrics.
+*   **`reset_history(self)`**: Clears the accumulated chat history, allowing a fresh conversation without rebuilding the session.
+*   **`device_label` property**: Convenience helper that reports whether the current session is running against the CPU or QNN backend.
+
+In addition to `ChatSession`, the module exposes `load_config(path)` to parse the YAML runtime configuration and several helper functions used by both the CLI and future server work (for example `_configure_qnn_provider`).
+
+### `chat_cli.py`
+
+The CLI is a thin wrapper around `ChatSession`. It loads configuration from disk, prints helpful status messages when `runtime.verbose` is enabled, and streams generated text to STDOUT as tokens arrive. Control+C interruptions propagate through the session so you can stop a long generation without restarting the process.
 
 ### ONNX Runtime and QNN Backend
 
@@ -30,12 +37,12 @@ The QNN backend is a library (e.g., `QnnHtp.dll`) that contains the implementati
 
 ## API Server (`api.py`)
 
-The `api.py` file will contain the FastAPI server. The server will expose the functionality of the `QA` class as a web API. The planned endpoints are:
+The `api.py` file will contain the FastAPI server. The server will expose the functionality of the `ChatSession` class as a web API. The planned endpoints are:
 
 *   **`/generate` (POST):** This endpoint will take a JSON object with a `prompt` and generation parameters, and will return the generated text.
 
 ## How to run on NPU
 
-To run the model on the Hexagon NPU, install the matching Qualcomm AI Engine SDK and update your YAML config with `device: qnn`. Populate the `qnn` block (typically `sdk_root` and optionally `backend`) so the script can locate the required DLLs and configure the QNN execution provider automatically.
+To run the model on the Hexagon NPU, install the matching Qualcomm AI Engine SDK and update your YAML config with `device: qnn`. Populate the `qnn` block (typically `sdk_root` and optionally `backend`) so the runtime can locate the required DLLs and configure the QNN execution provider automatically.
 
 For more detailed instructions on setting up the NPU environment, please refer to the `docs/onnx_npu_docs.md` file.

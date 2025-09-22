@@ -1,4 +1,4 @@
-# Example configuration for llama3-qa.py
+# Example configuration for chat_cli.py
 # Copy this file to llama3-qa.yaml and adjust the paths for your setup.
 
 model: ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4
