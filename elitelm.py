@@ -189,13 +189,20 @@ def _load_yaml_config(path: str | Path) -> argparse.Namespace:
         raise ValueError('Config file must contain a YAML mapping at the top level.')
 
     namespace = argparse.Namespace()
+    config_dir = config_path.parent
+
     try:
-        model_path = raw_config['model']
+        model_path_value = raw_config['model']
     except KeyError as exc:
         raise ValueError("Config missing required 'model' entry.") from exc
-    if not isinstance(model_path, str):
+    if not isinstance(model_path_value, str):
         raise ValueError("Config field 'model' must be a string path.")
-    setattr(namespace, 'model', model_path)
+    model_path = Path(model_path_value).expanduser()
+    if not model_path.is_absolute():
+        model_path = (config_dir / model_path).resolve()
+    else:
+        model_path = model_path.resolve()
+    setattr(namespace, 'model', str(model_path))
 
     device = raw_config.get('device', 'cpu')
     if device not in {'cpu', 'qnn'}:
@@ -205,12 +212,32 @@ def _load_yaml_config(path: str | Path) -> argparse.Namespace:
     qnn_section = raw_config.get('qnn') or {}
     if not isinstance(qnn_section, dict):
         raise ValueError("Config field 'qnn' must be a mapping when provided.")
+
     qnn_sdk = qnn_section.get('sdk_root')
     if qnn_sdk is not None:
-        setattr(namespace, 'qnn_sdk', qnn_sdk)
+        if not isinstance(qnn_sdk, str):
+            raise ValueError("Config field 'qnn.sdk_root' must be a string path when provided.")
+        sdk_path = Path(qnn_sdk).expanduser()
+        if not sdk_path.is_absolute():
+            sdk_path = (config_dir / sdk_path).resolve()
+        else:
+            sdk_path = sdk_path.resolve()
+        setattr(namespace, 'qnn_sdk', str(sdk_path))
+    else:
+        setattr(namespace, 'qnn_sdk', None)
+
     qnn_backend = qnn_section.get('backend')
     if qnn_backend is not None:
-        setattr(namespace, 'qnn_backend', qnn_backend)
+        if not isinstance(qnn_backend, str):
+            raise ValueError("Config field 'qnn.backend' must be a string path when provided.")
+        backend_path = Path(qnn_backend).expanduser()
+        if not backend_path.is_absolute():
+            backend_path = (config_dir / backend_path).resolve()
+        else:
+            backend_path = backend_path.resolve()
+        setattr(namespace, 'qnn_backend', str(backend_path))
+    else:
+        setattr(namespace, 'qnn_backend', None)
 
     generation = raw_config.get('generation') or {}
     if not isinstance(generation, dict):
@@ -345,27 +372,34 @@ class ChatSession:
         params = og.GeneratorParams(self.model)
         params.set_search_options(**self.search_options)
 
-        pending_inputs: dict[str, np.ndarray] = {}
+        generator_supports_append = hasattr(og.Generator, "append_tokens")
+        params_supports_set_input = hasattr(params, "set_model_input")
 
-        def _queue_model_input(name: str, value: np.ndarray) -> None:
-            if hasattr(params, "set_model_input"):
-                params.set_model_input(name, value)
-            else:
-                pending_inputs[name] = value
-
-        _queue_model_input("input_ids", input_tokens)
-        try:
-            attention_mask = np.ones_like(input_tokens, dtype=np.int32)
-            _queue_model_input("attention_mask", attention_mask)
-        except RuntimeError:
-            pass
+        batched_tokens = input_tokens.reshape(1, -1) if input_tokens.ndim == 1 else input_tokens
+        if not generator_supports_append and params_supports_set_input:
+            params.set_model_input("input_ids", batched_tokens)
+            try:
+                params.set_model_input("attention_mask", np.ones_like(batched_tokens, dtype=np.int32))
+            except RuntimeError:
+                pass
 
         generator = og.Generator(self.model, params)
-        if pending_inputs:
-            if not hasattr(generator, "set_model_input"):
-                raise AttributeError("onnxruntime_genai.Generator missing set_model_input")
-            for input_name, input_value in pending_inputs.items():
-                generator.set_model_input(input_name, input_value)
+
+        if generator_supports_append and hasattr(generator, "append_tokens"):
+            generator.append_tokens(input_tokens)
+            if hasattr(generator, "set_model_input"):
+                try:
+                    generator.set_model_input("attention_mask", np.ones((1, input_tokens.size), dtype=np.int32))
+                except RuntimeError:
+                    pass
+        elif hasattr(generator, "set_model_input"):
+            generator.set_model_input("input_ids", batched_tokens)
+            try:
+                generator.set_model_input("attention_mask", np.ones_like(batched_tokens, dtype=np.int32))
+            except RuntimeError:
+                pass
+        else:
+            raise AttributeError("onnxruntime_genai.Generator missing append_tokens and set_model_input")
 
         if hasattr(self.tokenizer_stream, "reset"):
             self.tokenizer_stream.reset()

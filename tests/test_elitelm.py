@@ -131,9 +131,8 @@ def test_add_dll_dir_noop_for_missing_path(monkeypatch, tmp_path, elitelm_module
     assert elitelm_module.os.environ["PATH"] == ""
 
 
-
 def test_load_yaml_config_defaults(tmp_path, elitelm_module):
-    config_file = tmp_path / 'config.yaml'
+    config_file = tmp_path / "config.yaml"
     config_file.write_text("""model: ./models/example
 generation:
   max_length: 512
@@ -142,20 +141,44 @@ runtime:
 """)
 
     config = elitelm_module._load_yaml_config(config_file)
-    assert config.model == './models/example'
-    assert config.device == 'cpu'
+    assert Path(config.model) == (tmp_path / "models/example").resolve()
+    assert config.device == "cpu"
     assert config.do_sample is False
     assert config.verbose is True
     assert config.max_length == 512
-    assert not hasattr(config, 'min_length')
-
+    assert not hasattr(config, "min_length")
+    assert config.qnn_sdk is None
+    assert config.qnn_backend is None
 
 
 def test_load_yaml_config_requires_model(tmp_path, elitelm_module):
-    config_file = tmp_path / 'config.yaml'
+    config_file = tmp_path / "config.yaml"
     config_file.write_text("""runtime:
   timings: true
 """)
 
     with pytest.raises(ValueError):
         elitelm_module._load_yaml_config(config_file)
+
+
+def test_load_yaml_config_resolves_qnn_paths(tmp_path, elitelm_module):
+    sdk_root = tmp_path / "qairt" / "2.0.0"
+    backend = sdk_root / "lib" / "QnnHtp.dll"
+    backend.parent.mkdir(parents=True)
+    backend.write_bytes(b"")
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("""model: ./model
+device: qnn
+qnn:
+  sdk_root: ./qairt/2.0.0
+  backend: ./qairt/2.0.0/lib/QnnHtp.dll
+""")
+
+    config = elitelm_module._load_yaml_config(config_file)
+    assert Path(config.model) == model_dir.resolve()
+    assert config.device == "qnn"
+    assert Path(config.qnn_sdk) == sdk_root.resolve()
+    assert Path(config.qnn_backend) == backend.resolve()
