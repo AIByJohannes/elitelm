@@ -47,19 +47,39 @@
     huggingface-cli download onnx-community/Llama-3.2-3B-Instruct-ONNX --include cpu_and_mobile/* --local-dir .
     ```
 
+3.  **Create your runtime config:**
+
+    ```bash
+    cp llama3-qa.example.yaml llama3-qa.yaml
+    ```
+
+    Edit `llama3-qa.yaml` to point to your downloaded model directory and tweak the `generation` values to your preference.
+
 ## Run inference script
 
-```bash
-python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 -k 40 -p 0.95 -t 0.8 -r 1.0
-```
-
-To target the Hexagon NPU, make sure the Qualcomm AI Runtime SDK is downloaded (the repository already contains it under `./qairt`). Then run:
+The CLI now reads all options from the YAML file. With the default file name you can simply run:
 
 ```bash
-python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 --device qnn --qnn-sdk ./qairt/2.37.0.250724
+python llama3-qa.py
 ```
 
-The script will automatically locate the `QnnHtp.dll` backend and configure ONNX Runtime's QNN Execution Provider. Pass `--verbose` to confirm NPU graph compilation in the logs.
+Alternatively, pass an explicit path if you keep multiple configs around:
+
+```bash
+python llama3-qa.py --config configs/my-experiment.yaml
+```
+
+### Running on the Hexagon NPU
+
+Set `device: qnn` in your config and populate the `qnn` block:
+
+```yaml
+qnn:
+  sdk_root: ./qairt/2.37.0.250724
+  backend: null  # optional override when auto-detection does not work
+```
+
+The script will automatically update the DLL search path and configure the QNN execution provider. Enable `runtime.verbose: true` to confirm graph compilation in the logs.
 
 ## Project Structure
 

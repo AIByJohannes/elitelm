@@ -13,7 +13,7 @@ EliteLM is designed to be a lightweight and high-performance inference server fo
 
 ### `llama3-qa.py`
 
-This script is the heart of the project. It contains the `QA` class, which is responsible for loading the model, tokenizing the input, and generating the output.
+This script is the heart of the project. Instead of CLI flags, it reads its runtime settings from a YAML file (defaults to `llama3-qa.yaml`). The config captures the model path, generation hyper-parameters, runtime toggles, and the optional QNN block used when targeting the Hexagon NPU. Provide `--config path/to/file.yaml` to switch between different profiles during development.
 
 #### The `QA` class
 
@@ -36,6 +36,6 @@ The `api.py` file will contain the FastAPI server. The server will expose the fu
 
 ## How to run on NPU
 
-To run the model on the Hexagon NPU, you need to ensure that you have the correct version of the Qualcomm AI Engine installed on your system, and that the `QnnHtp.dll` file is accessible. When you run the `llama3-qa.py` script with the `-b` argument pointing to the `QnnHtp.dll` file, the ONNX Runtime will automatically use the NPU for inference.
+To run the model on the Hexagon NPU, install the matching Qualcomm AI Engine SDK and update your YAML config with `device: qnn`. Populate the `qnn` block (typically `sdk_root` and optionally `backend`) so the script can locate the required DLLs and configure the QNN execution provider automatically.
 
 For more detailed instructions on setting up the NPU environment, please refer to the `docs/onnx_npu_docs.md` file.
