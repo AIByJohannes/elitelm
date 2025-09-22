@@ -17,20 +17,16 @@
     - [x] Implement interactive prompt loop.
     - [x] Run inference on CPU.
     - [x] **Run inference on NPU.**
-    - [ ] **Add support for more models.**
-    - [ ] **Improve generation performance.**
+    - [ ] **Add support for more LLMs.**
 - [ ] **Inference Server (`api.py`)**
     - [ ] **Create a FastAPI application.**
-    - [ ] **Implement a `/generate` endpoint that takes a prompt and returns a response.**
-    - [ ] **Integrate the `QA` class from `llama3-qa.py` into the server.**
-    - [ ] **Add request and response models.**
+    - [ ] **Implement an OpenAI Chat Completions compatible endpoint that takes a prompt and returns a response.**
+    - [ ] **Integrate functionality from `llama3-qa.py` into the server.**
     - [ ] **Implement error handling.**
     - [ ] **Add logging.**
 - [ ] **Advanced Features**
     - [ ] **Add a streaming endpoint for real-time generation.**
-    - [ ] **Implement a web-based UI for interacting with the model.**
-    - [ ] **Package the application as a Docker container.**
-    - [ ] **Add support for more backends (e.g., GPU).**
+    - [ ] **Implement a Streamlit app demo for interacting with the LLMs .**
 
 ## Requirements
 

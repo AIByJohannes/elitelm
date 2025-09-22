@@ -3,3 +3,4 @@ huggingface-hub[cli]
 fastapi
 uvicorn
 pydantic
+pytest
