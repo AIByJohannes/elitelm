@@ -6,6 +6,7 @@ import weakref
 
 import numpy as np
 import onnxruntime_genai as og
+import yaml
 
 _DLL_HANDLES: list[object] = []
 _REGISTERED_DLL_PATHS: set[str] = set()
@@ -151,6 +152,60 @@ def _configure_qnn_provider(model_dir: Path, sdk_arg: str | None, backend_arg: s
     return config
 
 
+def _load_yaml_config(path: str | Path) -> argparse.Namespace:
+    """Load runtime configuration for llama3-qa from a YAML file."""
+    config_path = Path(path).expanduser()
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    with config_path.open('r', encoding='utf-8') as handle:
+        raw_config = yaml.safe_load(handle) or {}
+    if not isinstance(raw_config, dict):
+        raise ValueError('Config file must contain a YAML mapping at the top level.')
+
+    namespace = argparse.Namespace()
+    try:
+        model_path = raw_config['model']
+    except KeyError as exc:
+        raise ValueError("Config missing required 'model' entry.") from exc
+    if not isinstance(model_path, str):
+        raise ValueError("Config field 'model' must be a string path.")
+    setattr(namespace, 'model', model_path)
+
+    device = raw_config.get('device', 'cpu')
+    if device not in {'cpu', 'qnn'}:
+        raise ValueError("Config field 'device' must be either 'cpu' or 'qnn'.")
+    setattr(namespace, 'device', device)
+
+    qnn_section = raw_config.get('qnn') or {}
+    if not isinstance(qnn_section, dict):
+        raise ValueError("Config field 'qnn' must be a mapping when provided.")
+    qnn_sdk = qnn_section.get('sdk_root')
+    if qnn_sdk is not None:
+        setattr(namespace, 'qnn_sdk', qnn_sdk)
+    qnn_backend = qnn_section.get('backend')
+    if qnn_backend is not None:
+        setattr(namespace, 'qnn_backend', qnn_backend)
+
+    generation = raw_config.get('generation') or {}
+    if not isinstance(generation, dict):
+        raise ValueError("Config field 'generation' must be a mapping when provided.")
+    for key in ['min_length', 'max_length', 'top_p', 'top_k', 'temperature', 'repetition_penalty']:
+        value = generation.get(key)
+        if value is not None:
+            setattr(namespace, key, value)
+    setattr(namespace, 'do_sample', bool(generation.get('do_sample', False)))
+
+    runtime = raw_config.get('runtime') or {}
+    if not isinstance(runtime, dict):
+        raise ValueError("Config field 'runtime' must be a mapping when provided.")
+    for key in ['verbose', 'timings']:
+        setattr(namespace, key, bool(runtime.get(key, False)))
+
+    setattr(namespace, 'config_path', str(config_path))
+    return namespace
+
+
 def _load_model(args) -> tuple[og.Model, og.Tokenizer, og.TokenizerStream]:
     model_dir = Path(args.model)
     if not model_dir.exists():
@@ -270,90 +325,16 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        argument_default=argparse.SUPPRESS,
         description="End-to-end AI Question/Answer example for gen-ai",
     )
     parser.add_argument(
-        "-m",
-        "--model",
+        "-c",
+        "--config",
         type=str,
-        required=True,
-        help="Onnx model folder path (must contain config.json and model.onnx)",
+        default="llama3-qa.yaml",
+        help="Path to the YAML configuration file. Defaults to llama3-qa.yaml in the repo root.",
     )
-    parser.add_argument(
-        "--device",
-        choices=["cpu", "qnn"],
-        default="cpu",
-        help="Select inference device. Use 'qnn' to run on the Hexagon NPU.",
-    )
-    parser.add_argument(
-        "--qnn-sdk",
-        type=str,
-        help="Path to the QNN SDK root. Defaults to QNN_SDK_ROOT or ./qairt/<version>",
-    )
-    parser.add_argument(
-        "--qnn-backend",
-        type=str,
-        help="Path to QnnHtp.dll. Defaults to the best match in <qnn-sdk>/lib",
-    )
-    parser.add_argument(
-        "-i",
-        "--min_length",
-        type=int,
-        help="Min number of tokens to generate including the prompt",
-    )
-    parser.add_argument(
-        "-l",
-        "--max_length",
-        type=int,
-        help="Max number of tokens to generate including the prompt",
-    )
-    parser.add_argument(
-        "-ds",
-        "--do_sample",
-        action="store_true",
-        default=False,
-        help=(
-            "Do random sampling. When false, greedy or beam search are used to generate the "
-            "output. Defaults to false"
-        ),
-    )
-    parser.add_argument(
-        "-p",
-        "--top_p",
-        type=float,
-        help="Top p probability to sample with",
-    )
-    parser.add_argument(
-        "-k",
-        "--top_k",
-        type=int,
-        help="Top k tokens to sample from",
-    )
-    parser.add_argument(
-        "-t",
-        "--temperature",
-        type=float,
-        help="Temperature to sample with",
-    )
-    parser.add_argument(
-        "-r",
-        "--repetition_penalty",
-        type=float,
-        help="Repetition penalty to sample with",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Print verbose output and timing information. Defaults to false",
-    )
-    parser.add_argument(
-        "-g",
-        "--timings",
-        action="store_true",
-        default=False,
-        help="Print timing information for each generation step. Defaults to false",
-    )
-    main(parser.parse_args())
+    cli_args = parser.parse_args()
+    config = _load_yaml_config(cli_args.config)
+    main(config)
+

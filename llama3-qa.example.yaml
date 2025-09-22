@@ -1,0 +1,27 @@
+# Example configuration for llama3-qa.py
+# Copy this file to llama3-qa.yaml and adjust the paths for your setup.
+
+model: ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4
+# device can be "cpu" or "qnn"
+device: cpu
+
+generation:
+  # Minimum number of tokens (including prompt) to generate
+  min_length: 32
+  # Maximum number of tokens (including prompt) to generate
+  max_length: 2048
+  # Enable sampling instead of greedy decoding
+  do_sample: true
+  top_p: 0.95
+  top_k: 40
+  temperature: 0.8
+  repetition_penalty: 1.0
+
+runtime:
+  verbose: false
+  timings: false
+
+# Only required when device is "qnn"
+qnn:
+  sdk_root: ./qairt/2.37.0.250724
+  backend: null

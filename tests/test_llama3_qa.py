@@ -127,3 +127,33 @@ def test_add_dll_dir_noop_for_missing_path(monkeypatch, tmp_path, llama3_module)
 
     llama3_module._add_dll_dir(missing)
     assert llama3_module.os.environ["PATH"] == ""
+
+
+
+def test_load_yaml_config_defaults(tmp_path, llama3_module):
+    config_file = tmp_path / 'config.yaml'
+    config_file.write_text("""model: ./models/example
+generation:
+  max_length: 512
+runtime:
+  verbose: true
+""")
+
+    config = llama3_module._load_yaml_config(config_file)
+    assert config.model == './models/example'
+    assert config.device == 'cpu'
+    assert config.do_sample is False
+    assert config.verbose is True
+    assert config.max_length == 512
+    assert not hasattr(config, 'min_length')
+
+
+
+def test_load_yaml_config_requires_model(tmp_path, llama3_module):
+    config_file = tmp_path / 'config.yaml'
+    config_file.write_text("""runtime:
+  timings: true
+""")
+
+    with pytest.raises(ValueError):
+        llama3_module._load_yaml_config(config_file)
