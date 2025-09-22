@@ -36,24 +36,23 @@
 
 ## Setup
 
-1.  **Install dependencies:**
-
+1.  **Create and activate the virtual environment (`.venv/`):**
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows use: .\.venv\Scripts\activate
+    ```
+2.  **Install dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-
-2.  **Download the model:**
-
+3.  **Download the model:**
     ```bash
     huggingface-cli download onnx-community/Llama-3.2-3B-Instruct-ONNX --include cpu_and_mobile/* --local-dir .
     ```
-
-3.  **Create your runtime config:**
-
+4.  **Create your runtime config:**
     ```bash
     cp llama3-qa.example.yaml llama3-qa.yaml
     ```
-
     Edit `llama3-qa.yaml` to point to your downloaded model directory and tweak the `generation` values to your preference.
 
 ## Run the chat client
