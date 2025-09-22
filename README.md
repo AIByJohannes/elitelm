@@ -16,7 +16,7 @@
     - [x] Load model and tokenizer.
     - [x] Implement interactive prompt loop.
     - [x] Run inference on CPU.
-    - [ ] **Run inference on NPU.**
+    - [x] **Run inference on NPU.**
     - [ ] **Add support for more models.**
     - [ ] **Improve generation performance.**
 - [ ] **Inference Server (`api.py`)**
@@ -56,6 +56,14 @@
 ```bash
 python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 -k 40 -p 0.95 -t 0.8 -r 1.0
 ```
+
+To target the Hexagon NPU, make sure the Qualcomm AI Runtime SDK is downloaded (the repository already contains it under `./qairt`). Then run:
+
+```bash
+python llama3-qa.py -m ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4 --device qnn --qnn-sdk ./qairt/2.37.0.250724
+```
+
+The script will automatically locate the `QnnHtp.dll` backend and configure ONNX Runtime's QNN Execution Provider. Pass `--verbose` to confirm NPU graph compilation in the logs.
 
 ## Project Structure
 
