@@ -2,12 +2,66 @@ import argparse
 import os
 import time
 from pathlib import Path
+import weakref
 
 import numpy as np
 import onnxruntime_genai as og
 
 _DLL_HANDLES: list[object] = []
 _REGISTERED_DLL_PATHS: set[str] = set()
+
+_CONFIG_PROVIDER_OPTIONS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+def _ensure_config_provider_helpers() -> None:
+    if getattr(og.Config, "_elitelm_provider_patch", False):
+        return
+
+    original_clear = og.Config.clear_providers
+    original_set = og.Config.set_provider_option
+
+    def clear_providers(self) -> None:
+        _CONFIG_PROVIDER_OPTIONS.pop(self, None)
+        return original_clear(self)
+
+    def set_provider_option(self, provider: str, key: str, value: str) -> None:
+        provider_map = _CONFIG_PROVIDER_OPTIONS.setdefault(self, {})
+        provider_map.setdefault(provider, {})[key] = value
+        return original_set(self, provider, key, value)
+
+    def get_provider_option(self, provider: str, key: str) -> str | None:
+        return _CONFIG_PROVIDER_OPTIONS.get(self, {}).get(provider, {}).get(key)
+
+    og.Config.clear_providers = clear_providers
+    og.Config.set_provider_option = set_provider_option
+    og.Config.get_provider_option = get_provider_option
+    setattr(og.Config, "_elitelm_provider_patch", True)
+
+
+_ensure_config_provider_helpers()
+
+
+class _DummyConfig:
+    def __init__(self, model_dir: Path) -> None:
+        self.model_dir = model_dir
+        self._providers: list[str] = []
+        self._options: dict[str, dict[str, str]] = {}
+
+    def clear_providers(self) -> None:
+        self._providers.clear()
+        self._options.clear()
+
+    def append_provider(self, provider: str) -> None:
+        if provider not in self._providers:
+            self._providers.append(provider)
+
+    def set_provider_option(self, provider: str, key: str, value: str) -> None:
+        self._options.setdefault(provider, {})[key] = value
+
+    def get_provider_option(self, provider: str, key: str) -> str | None:
+        return self._options.get(provider, {}).get(key)
+
+    def __repr__(self) -> str:
+        return f"_DummyConfig(model_dir={self.model_dir!s})"
 
 
 def _add_dll_dir(path: Path) -> None:
@@ -65,11 +119,19 @@ def _configure_qnn_provider(model_dir: Path, sdk_arg: str | None, backend_arg: s
     if not og.is_qnn_available():
         raise RuntimeError("onnxruntime-genai was built without QNN support on this platform")
 
-    config = og.Config(str(model_dir))
+    _ensure_config_provider_helpers()
+
+    sdk_root = _resolve_qnn_sdk_root(sdk_arg)
+    config_path = model_dir / "genai_config.json"
+
+    if config_path.exists():
+        config = og.Config(str(model_dir))
+    else:
+        config = _DummyConfig(model_dir)
+
     config.clear_providers()
     config.append_provider("QNNExecutionProvider")
 
-    sdk_root = _resolve_qnn_sdk_root(sdk_arg)
     if backend_arg:
         backend_path = Path(backend_arg).expanduser()
         arch = backend_path.parent.name
@@ -100,6 +162,11 @@ def _load_model(args) -> tuple[og.Model, og.Tokenizer, og.TokenizerStream]:
             getattr(args, "qnn_sdk", None),
             getattr(args, "qnn_backend", None),
         )
+        if isinstance(config, _DummyConfig):
+            missing = model_dir / "genai_config.json"
+            raise FileNotFoundError(
+                f"Model directory not ready for QNN execution: missing {missing}"
+            )
         model = og.Model(config)
     else:
         model = og.Model(str(model_dir))
