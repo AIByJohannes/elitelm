@@ -15,6 +15,8 @@ import importlib.util
 from pathlib import Path
 import pytest
 
+from conftest import MODEL_FILENAMES
+
 try:
     import onnxruntime_genai as og
 except ImportError:
@@ -333,4 +335,6 @@ def test_skip_without_test_model(skip_if_no_qnn, qnn_sdk_root, test_model_path):
     """
     # This test body only runs if model is found
     assert test_model_path.exists(), "Test model should exist"
-    assert (test_model_path / "ort_model.onnx").exists(), "ONNX model file should exist"
+    assert any(
+        (test_model_path / candidate).exists() for candidate in MODEL_FILENAMES
+    ), "Expected ONNX model (model.onnx or ort_model.onnx) to exist"

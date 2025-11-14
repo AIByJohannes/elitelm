@@ -11,6 +11,11 @@ except ImportError:
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "elitelm.py"
 
+# Canonical ONNX filenames we expect inside quantized model bundles.
+# Prefer the newer "model.onnx" naming but keep the older "ort_model.onnx"
+# for backward compatibility with legacy exports.
+MODEL_FILENAMES = ("model.onnx", "ort_model.onnx")
+
 
 def load_elitelm_module():
     spec = importlib.util.spec_from_file_location("elitelm", MODULE_PATH)
@@ -132,12 +137,9 @@ def test_model_path():
             if subdir.is_dir():
                 base_candidates.append(subdir)
 
-    # Model file names to look for (in order of preference)
-    model_files = ["model.onnx", "ort_model.onnx"]
-
     for candidate in base_candidates:
         if candidate.exists():
-            for model_file in model_files:
+            for model_file in MODEL_FILENAMES:
                 if (candidate / model_file).exists():
                     return candidate.resolve()
 

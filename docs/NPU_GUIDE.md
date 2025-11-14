@@ -63,6 +63,8 @@ To run on the Hexagon NPU, a model must be:
 
 For this project, a compatible Llama 3.2 3B model is provided under `cpu_and_mobile/llama-3.2-3b-npu-complete/`.
 
+> **Model file naming**: We standardize on `model.onnx` for the exported graph. Older drops may still include `ort_model.onnx`; rename or copy it to `model.onnx` so automation (CLI, tests, and utilities) can find the model without extra configuration. The tooling will still fall back to the legacy filename to ease migrations.
+
 ### Configuration
 
 In your `llama3-qa.yaml` file, configure the `device` and `qnn` sections to enable NPU execution.
