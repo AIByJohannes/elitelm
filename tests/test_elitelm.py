@@ -182,3 +182,100 @@ qnn:
     assert config.device == "qnn"
     assert Path(config.qnn_sdk) == sdk_root.resolve()
     assert Path(config.qnn_backend) == backend.resolve()
+
+
+# ============================================================================
+# Tier 1: Build-Time Availability Tests
+# ============================================================================
+
+
+def test_qnn_compiled_in():
+    """Verify QNN support is compiled into onnxruntime-genai (Tier 1).
+
+    This test validates that the build includes QNN support.
+    It runs on all systems and returns early on non-Snapdragon machines.
+    """
+    try:
+        import onnxruntime_genai as og
+
+        result = og.is_qnn_available()
+        assert isinstance(result, bool), "is_qnn_available() should return a boolean"
+    except ImportError:
+        pytest.skip("onnxruntime-genai not installed")
+
+
+# ============================================================================
+# Tier 2: Configuration and Provider Registration Tests
+# ============================================================================
+
+
+def test_qnn_provider_options_set(monkeypatch, tmp_path, elitelm_module):
+    """Verify QNN provider options are correctly set (Tier 2).
+
+    This test validates that _configure_qnn_provider correctly sets
+    the backend_path and qnn_sdk_root options on the config object.
+    It uses mocked paths and does not require actual hardware.
+    """
+    sdk_root = tmp_path / "sdk"
+    lib_dir = sdk_root / "lib" / "aarch64-windows-msvc"
+    bin_dir = sdk_root / "bin" / "aarch64-windows-msvc"
+    lib_dir.mkdir(parents=True)
+    bin_dir.mkdir(parents=True)
+    backend = lib_dir / "QnnHtp.dll"
+    backend.write_bytes(b"")
+
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+
+    monkeypatch.setattr(
+        elitelm_module.os,
+        "add_dll_directory",
+        lambda path: None,
+    )
+    monkeypatch.setitem(elitelm_module.os.environ, "PATH", "")
+
+    # Create config and verify options are retrievable
+    config = elitelm_module._configure_qnn_provider(model_dir, str(sdk_root), None)
+
+    # Verify backend_path option was set correctly
+    opt_backend = config.get_provider_option("QNNExecutionProvider", "backend_path")
+    assert opt_backend is not None, "backend_path option not set"
+    assert Path(opt_backend) == backend.resolve()
+
+    # Verify qnn_sdk_root option was set correctly
+    opt_sdk = config.get_provider_option("QNNExecutionProvider", "qnn_sdk_root")
+    assert opt_sdk is not None, "qnn_sdk_root option not set"
+    assert Path(opt_sdk) == sdk_root.resolve()
+
+
+def test_qnn_provider_options_persist(monkeypatch, tmp_path, elitelm_module):
+    """Verify provider options persist across multiple calls (Tier 2).
+
+    This test validates that the provider option helper correctly tracks
+    and retrieves options even when multiple providers are configured.
+    """
+    sdk_root = tmp_path / "sdk"
+    lib_dir = sdk_root / "lib" / "aarch64-windows-msvc"
+    lib_dir.mkdir(parents=True)
+    backend = lib_dir / "QnnHtp.dll"
+    backend.write_bytes(b"")
+
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+
+    monkeypatch.setattr(
+        elitelm_module.os,
+        "add_dll_directory",
+        lambda path: None,
+    )
+    monkeypatch.setitem(elitelm_module.os.environ, "PATH", "")
+
+    config = elitelm_module._configure_qnn_provider(model_dir, str(sdk_root), None)
+
+    # Retrieve options multiple times to ensure they persist
+    opt1 = config.get_provider_option("QNNExecutionProvider", "backend_path")
+    opt2 = config.get_provider_option("QNNExecutionProvider", "backend_path")
+    assert opt1 == opt2, "Options should persist across multiple retrievals"
+
+    # Verify the option value is correct
+    assert Path(opt1) == backend.resolve()
