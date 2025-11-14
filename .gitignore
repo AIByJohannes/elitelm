@@ -1,5 +1,6 @@
 # Binary dependencies
 qairt/
+cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle/
 
 # Python bytecode and cache
 __pycache__/
@@ -43,6 +44,7 @@ coverage.xml
 # Logs and databases
 *.log
 *.sqlite3
+cpu_and_mobile/llama-3.2-3b-npu-complete/platformValidator/output/
 
 # Local development settings
 .env
