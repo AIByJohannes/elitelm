@@ -101,6 +101,22 @@ python run_npu_model.py
 python run_npu_model.py "What is artificial intelligence?"
 ```
 
+### API Server
+
+You can run the OpenAI-compatible API server on the NPU. Ensure your `llama3-qa.yaml` is configured with `device: qnn`.
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+### Benchmarking
+
+To verify performance gains, use the comparison script which runs the same prompt on both CPU and NPU using the `ChatSession` runtime:
+
+```bash
+python compare_cpu_npu.py "Why is the sky blue?"
+```
+
 ### Direct Genie Execution
 
 You can also run the model directly using the Genie runtime executable.

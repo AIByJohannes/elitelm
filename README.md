@@ -40,14 +40,14 @@ EliteLM is divided into three main parts:
     - [ ] **Add support for more LLMs.**
 - [x] **Interactive CLI (`chat_cli.py`)**
     - [x] Implement interactive prompt loop.
-- [ ] **Inference Server (`api.py`)**
-    - [ ] **Create a FastAPI application.**
-    - [ ] **Implement an OpenAI Chat Completions compatible endpoint that takes a prompt and returns a response.**
-    - [ ] **Integrate functionality from `elitelm.py` into the server.**
+- [x] **Inference Server (`api.py`)**
+    - [x] **Create a FastAPI application.**
+    - [x] **Implement an OpenAI Chat Completions compatible endpoint that takes a prompt and returns a response.**
+    - [x] **Integrate functionality from `elitelm.py` into the server.**
     - [ ] **Implement error handling.**
     - [ ] **Add logging.**
-- [ ] **Advanced Features**
-    - [ ] **Add a streaming endpoint for real-time generation.**
+- [x] **Advanced Features**
+    - [x] **Add a streaming endpoint for real-time generation.**
     - [ ] **Implement a Streamlit app demo for interacting with the LLMs .**
 
 ## Requirements
@@ -93,6 +93,31 @@ python chat_cli.py --config configs/my-experiment.yaml
 
 To embed EliteLM into another application, import `ChatSession` from `elitelm` and drive generation directly.
 
+### Running the API Server
+
+EliteLM includes an OpenAI-compatible API server built with FastAPI. To start the server:
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+The server loads the configuration from `llama3-qa.yaml` by default (or set `ELITELM_CONFIG` env var). It supports:
+-   `/v1/chat/completions` endpoint.
+-   Streaming responses (`stream=True`).
+-   Hardware acceleration (if configured in YAML).
+
+Example request:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama-3.2-3b",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
 ### Running on the Hexagon NPU
 
 To run the model on the Hexagon NPU, install the matching Qualcomm AI Engine SDK and update your YAML config with `device: qnn`. Populate the `qnn` block so the runtime can locate the required DLLs and configure the QNN execution provider automatically.
@@ -106,6 +131,16 @@ qnn:
 ```
 
 The script will automatically update the DLL search path and configure the QNN execution provider. Enable `runtime.verbose: true` to confirm graph compilation in the logs. For more details, see `docs/NPU_GUIDE.md`.
+
+## Benchmarking
+
+To compare CPU vs NPU performance using the same runtime:
+
+```bash
+python compare_cpu_npu.py --config llama3-qa.yaml "Your prompt here"
+```
+
+This script runs the prompt on both devices (overriding the `device` setting in the config) and reports tokens per second (TPS) and time-to-first-token (TTF).
 
 ## Testing
 
