@@ -146,7 +146,7 @@ runtime:
     assert config.do_sample is False
     assert config.verbose is True
     assert config.max_length == 512
-    assert not hasattr(config, "min_length")
+    assert config.min_length is None
     assert config.qnn_sdk is None
     assert config.qnn_backend is None
 
@@ -157,7 +157,8 @@ def test_load_yaml_config_requires_model(tmp_path, elitelm_module):
   timings: true
 """)
 
-    with pytest.raises(ValueError):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
         elitelm_module._load_yaml_config(config_file)
 
 

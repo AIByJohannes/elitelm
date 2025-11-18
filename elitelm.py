@@ -1,6 +1,6 @@
 import argparse
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal, Optional
 import json
 import os
 import sys
@@ -11,6 +11,7 @@ import weakref
 import numpy as np
 import onnxruntime_genai as og
 import yaml
+from pydantic import BaseModel, Field
 
 _DLL_HANDLES: list[object] = []
 _REGISTERED_DLL_PATHS: set[str] = set()
@@ -177,7 +178,80 @@ def _configure_qnn_provider(model_dir: Path, sdk_arg: str | None, backend_arg: s
     return config
 
 
-def _load_yaml_config(path: str | Path) -> argparse.Namespace:
+class QnnConfig(BaseModel):
+    sdk_root: Optional[str] = None
+    backend: Optional[str] = None
+
+
+class GenerationConfig(BaseModel):
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    temperature: Optional[float] = None
+    repetition_penalty: Optional[float] = None
+    do_sample: bool = False
+
+
+class RuntimeConfig(BaseModel):
+    verbose: bool = False
+    timings: bool = False
+
+
+class AppConfig(BaseModel):
+    model: str
+    device: Literal['cpu', 'qnn'] = 'cpu'
+    qnn: QnnConfig = Field(default_factory=QnnConfig)
+    generation: GenerationConfig = Field(default_factory=GenerationConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    config_path: Optional[str] = None
+
+    @property
+    def qnn_sdk(self) -> str | None:
+        return self.qnn.sdk_root
+
+    @property
+    def qnn_backend(self) -> str | None:
+        return self.qnn.backend
+
+    @property
+    def verbose(self) -> bool:
+        return self.runtime.verbose
+
+    @property
+    def timings(self) -> bool:
+        return self.runtime.timings
+
+    @property
+    def min_length(self) -> int | None:
+        return self.generation.min_length
+
+    @property
+    def max_length(self) -> int | None:
+        return self.generation.max_length
+
+    @property
+    def top_p(self) -> float | None:
+        return self.generation.top_p
+
+    @property
+    def top_k(self) -> int | None:
+        return self.generation.top_k
+
+    @property
+    def temperature(self) -> float | None:
+        return self.generation.temperature
+
+    @property
+    def repetition_penalty(self) -> float | None:
+        return self.generation.repetition_penalty
+
+    @property
+    def do_sample(self) -> bool:
+        return self.generation.do_sample
+
+
+def _load_yaml_config(path: str | Path) -> AppConfig:
     """Load runtime configuration for EliteLM chat sessions from a YAML file."""
     config_path = Path(path).expanduser()
     if not config_path.exists():
@@ -185,77 +259,38 @@ def _load_yaml_config(path: str | Path) -> argparse.Namespace:
 
     with config_path.open('r', encoding='utf-8') as handle:
         raw_config = yaml.safe_load(handle) or {}
+
     if not isinstance(raw_config, dict):
         raise ValueError('Config file must contain a YAML mapping at the top level.')
 
-    namespace = argparse.Namespace()
+    # Resolve paths relative to config file
     config_dir = config_path.parent
 
-    try:
-        model_path_value = raw_config['model']
-    except KeyError as exc:
-        raise ValueError("Config missing required 'model' entry.") from exc
-    if not isinstance(model_path_value, str):
-        raise ValueError("Config field 'model' must be a string path.")
-    model_path = Path(model_path_value).expanduser()
-    if not model_path.is_absolute():
-        model_path = (config_dir / model_path).resolve()
-    else:
-        model_path = model_path.resolve()
-    setattr(namespace, 'model', str(model_path))
-
-    device = raw_config.get('device', 'cpu')
-    if device not in {'cpu', 'qnn'}:
-        raise ValueError("Config field 'device' must be either 'cpu' or 'qnn'.")
-    setattr(namespace, 'device', device)
-
-    qnn_section = raw_config.get('qnn') or {}
-    if not isinstance(qnn_section, dict):
-        raise ValueError("Config field 'qnn' must be a mapping when provided.")
-
-    qnn_sdk = qnn_section.get('sdk_root')
-    if qnn_sdk is not None:
-        if not isinstance(qnn_sdk, str):
-            raise ValueError("Config field 'qnn.sdk_root' must be a string path when provided.")
-        sdk_path = Path(qnn_sdk).expanduser()
-        if not sdk_path.is_absolute():
-            sdk_path = (config_dir / sdk_path).resolve()
+    if 'model' in raw_config and isinstance(raw_config['model'], str):
+        model_path = Path(raw_config['model']).expanduser()
+        if not model_path.is_absolute():
+            raw_config['model'] = str((config_dir / model_path).resolve())
         else:
-            sdk_path = sdk_path.resolve()
-        setattr(namespace, 'qnn_sdk', str(sdk_path))
-    else:
-        setattr(namespace, 'qnn_sdk', None)
+            raw_config['model'] = str(model_path.resolve())
 
-    qnn_backend = qnn_section.get('backend')
-    if qnn_backend is not None:
-        if not isinstance(qnn_backend, str):
-            raise ValueError("Config field 'qnn.backend' must be a string path when provided.")
-        backend_path = Path(qnn_backend).expanduser()
-        if not backend_path.is_absolute():
-            backend_path = (config_dir / backend_path).resolve()
-        else:
-            backend_path = backend_path.resolve()
-        setattr(namespace, 'qnn_backend', str(backend_path))
-    else:
-        setattr(namespace, 'qnn_backend', None)
+    if 'qnn' in raw_config and isinstance(raw_config['qnn'], dict):
+        if 'sdk_root' in raw_config['qnn'] and isinstance(raw_config['qnn']['sdk_root'], str):
+            sdk_path = Path(raw_config['qnn']['sdk_root']).expanduser()
+            if not sdk_path.is_absolute():
+                raw_config['qnn']['sdk_root'] = str((config_dir / sdk_path).resolve())
+            else:
+                raw_config['qnn']['sdk_root'] = str(sdk_path.resolve())
 
-    generation = raw_config.get('generation') or {}
-    if not isinstance(generation, dict):
-        raise ValueError("Config field 'generation' must be a mapping when provided.")
-    for key in ['min_length', 'max_length', 'top_p', 'top_k', 'temperature', 'repetition_penalty']:
-        value = generation.get(key)
-        if value is not None:
-            setattr(namespace, key, value)
-    setattr(namespace, 'do_sample', bool(generation.get('do_sample', False)))
+        if 'backend' in raw_config['qnn'] and isinstance(raw_config['qnn']['backend'], str):
+            backend_path = Path(raw_config['qnn']['backend']).expanduser()
+            if not backend_path.is_absolute():
+                raw_config['qnn']['backend'] = str((config_dir / backend_path).resolve())
+            else:
+                raw_config['qnn']['backend'] = str(backend_path.resolve())
 
-    runtime = raw_config.get('runtime') or {}
-    if not isinstance(runtime, dict):
-        raise ValueError("Config field 'runtime' must be a mapping when provided.")
-    for key in ['verbose', 'timings']:
-        setattr(namespace, key, bool(runtime.get(key, False)))
-
-    setattr(namespace, 'config_path', str(config_path))
-    return namespace
+    config = AppConfig(**raw_config)
+    config.config_path = str(config_path)
+    return config
 
 
 def _load_model(args) -> tuple[og.Model, og.Tokenizer, og.TokenizerStream]:
@@ -304,7 +339,7 @@ class GenerationResult:
 class ChatSession:
     """High-level chat session that wraps tokenizer/model state."""
 
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(self, args: AppConfig | argparse.Namespace) -> None:
         self.args = args
         self.model, self.tokenizer, self.tokenizer_stream = _load_model(args)
         self.search_options = {
@@ -360,17 +395,38 @@ class ChatSession:
         self,
         user_text: str,
         *,
+        max_new_tokens: int | None = None,
         timings: bool = False,
         on_token: Callable[[str], None] | None = None,
+        **kwargs,
     ) -> GenerationResult:
         if not user_text:
             raise ValueError("user_text cannot be empty")
 
         prompt, chat_messages = self._build_prompt(user_text)
         input_tokens = self.tokenizer.encode(prompt).astype(np.int32)
+        prompt_len = int(input_tokens.size) if input_tokens.ndim == 1 else int(input_tokens.shape[-1])
 
         params = og.GeneratorParams(self.model)
-        params.set_search_options(**self.search_options)
+        
+        # Merge default options with per-request overrides
+        search_options = self.search_options.copy()
+        search_options.update(kwargs)
+
+        # Handle max_new_tokens logic (OpenAI style) vs max_length (ORT style)
+        if max_new_tokens is not None:
+            search_options["max_length"] = prompt_len + max_new_tokens
+        else:
+            configured_max = search_options.get("max_length")
+            if configured_max is None or configured_max <= prompt_len:
+                # Ensure there is always room for generation even if previous calls shrank max_length
+                default_total = max(self.search_options.get("max_length", 2048), prompt_len)
+                extra_tokens = default_total - prompt_len
+                if extra_tokens <= 0:
+                    extra_tokens = 512
+                search_options["max_length"] = prompt_len + extra_tokens
+
+        params.set_search_options(**search_options)
 
         generator_supports_append = hasattr(og.Generator, "append_tokens")
         params_supports_set_input = hasattr(params, "set_model_input")
@@ -471,7 +527,7 @@ class ChatSession:
         )
 
 
-def load_config(path: str | Path) -> argparse.Namespace:
+def load_config(path: str | Path) -> AppConfig:
     """Public wrapper for loading YAML chat configuration."""
     return _load_yaml_config(path)
 
