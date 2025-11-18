@@ -66,12 +66,14 @@ EliteLM is divided into three main parts:
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Download the model:**
+3.  **Download and extract the Qualcomm AI Engine Direct SDK:**
+    Download the SDK from [Qualcomm AI Engine Direct SDK](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk) and extract the contents to the `qairt/` directory.
+4.  **Download the model:**
     ```bash
     huggingface-cli download onnx-community/Llama-3.2-3B-Instruct-ONNX --include cpu_and_mobile/* --local-dir .
     ```
     Each quantized model directory should expose its primary graph as `model.onnx`. If you download older exports that still ship an `ort_model.onnx`, copy or rename it to `model.onnx` so the runtime and tests pick it up automatically (they still fall back to the legacy name for compatibility).
-4.  **Create your runtime config:**
+5.  **Create your runtime config:**
     ```bash
     cp llama3-qa.example.yaml llama3-qa.yaml
     ```

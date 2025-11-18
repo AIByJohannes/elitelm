@@ -47,7 +47,7 @@ The Neural Processing Unit (NPU) is a specialized processor designed to accelera
 
 1.  **Hardware**: A PC with a Snapdragon X Elite or Snapdragon X Plus chip.
 2.  **Python**: Python 3.11.
-3.  **QNN SDK**: Download and extract the Qualcomm AI Engine Direct SDK (QNN SDK). You will need the path to the SDK directory.
+3.  **QNN SDK**: Download and extract the [Qualcomm AI Engine Direct SDK](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk) to the `qairt/` directory. You will need the path to the SDK directory.
 4.  **Python Packages**:
     ```bash
     pip install onnxruntime-genai onnxruntime-qnn
