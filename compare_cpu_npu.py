@@ -1,159 +1,94 @@
 #!/usr/bin/env python3
 """
-Compare CPU vs NPU inference performance for Llama models.
-
-This script runs the same prompts on both CPU (via onnxruntime-genai)
-and NPU (via Genie) to demonstrate the performance difference.
+Compare CPU vs NPU inference performance for Llama models using EliteLM ChatSession.
 """
 
-import time
-from pathlib import Path
+import argparse
 import sys
+import time
+from copy import deepcopy
 
-# Import NPU wrapper
-from run_npu_model import run_npu_inference, format_llama3_prompt
+from elitelm import ChatSession, load_config, AppConfig
 
-# Import CPU runtime
-try:
-    import onnxruntime_genai as og
-except ImportError:
-    print("Error: onnxruntime_genai not installed", file=sys.stderr)
-    sys.exit(1)
+def run_session(config: AppConfig, prompt: str, label: str) -> tuple[str, float, float]:
+    print(f"\n" + "-"*70)
+    print(f"Running on {label}...")
+    print("-" * 70)
+    
+    try:
+        session = ChatSession(config)
+        print(f"Model loaded on {session.device_label}")
+        
+        # Force timings on
+        session.args.runtime.timings = True
+        # Also update search options if needed, but config should have them.
+        
+        print("Generating...")
+        result = session.generate(prompt, timings=True)
+        
+        text = result.text
+        print(f"Output: {text[:200]}{'...' if len(text) > 200 else ''}")
+        
+        if result.stats:
+            print(f"Time to first token: {result.stats.time_to_first_token:.4f}s")
+            print(f"Gen TPS: {result.stats.generated_tokens_per_second:.2f}")
+            return text, result.stats.generated_tokens_per_second, result.stats.time_to_first_token
+        else:
+            return text, 0.0, 0.0
 
-
-def run_cpu_inference(model_path: str, prompt: str) -> tuple[str, float]:
-    """
-    Run inference on CPU using onnxruntime-genai.
-
-    Args:
-        model_path: Path to the ONNX model directory
-        prompt: The input prompt
-
-    Returns:
-        Tuple of (generated_text, inference_time_seconds)
-    """
-    model_dir = Path(model_path)
-    if not model_dir.exists():
-        raise FileNotFoundError(f"Model directory not found: {model_dir}")
-
-    start_time = time.time()
-
-    # Load model and tokenizer
-    model = og.Model(str(model_dir))
-    tokenizer = og.Tokenizer(model)
-    tokenizer_stream = tokenizer.create_stream()
-
-    # Tokenize input
-    tokens = tokenizer.encode(prompt)
-
-    # Generate
-    params = og.GeneratorParams(model)
-    params.set_search_options(max_length=100)  # Limit for fair comparison
-
-    # Set input tokens (batched)
-    batched_tokens = tokens.reshape(1, -1) if tokens.ndim == 1 else tokens
-    if hasattr(params, "set_model_input"):
-        params.set_model_input("input_ids", batched_tokens)
-    else:
-        params.input_ids = tokens
-
-    generator = og.Generator(model, params)
-
-    # Generate tokens
-    generated_text = ""
-    while not generator.is_done():
-        generator.generate_next_token()
-        new_token = generator.get_next_tokens()[0]
-        generated_text += tokenizer_stream.decode(int(new_token))
-
-    end_time = time.time()
-    inference_time = end_time - start_time
-
-    return generated_text, inference_time
-
+    except Exception as e:
+        print(f"Error running on {label}: {e}")
+        import traceback
+        traceback.print_exc()
+        return "", 0.0, 0.0
 
 def main():
-    """Compare CPU vs NPU performance."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Compare CPU vs NPU inference performance"
-    )
-    parser.add_argument(
-        "--cpu-model",
-        default="cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4",
-        help="Path to CPU model directory"
-    )
-    parser.add_argument(
-        "prompt",
-        nargs="?",
-        default="What is the capital of France?",
-        help="Input prompt"
-    )
-
+    parser = argparse.ArgumentParser(description="Compare CPU vs NPU inference performance")
+    parser.add_argument("-c", "--config", default="llama3-qa.yaml", help="Path to config file")
+    parser.add_argument("prompt", nargs="?", default="What is the capital of France?", help="Input prompt")
     args = parser.parse_args()
+
+    try:
+        base_config = load_config(args.config)
+    except Exception as e:
+        print(f"Failed to load config: {e}")
+        sys.exit(1)
 
     print("="*70)
     print("CPU vs NPU Performance Comparison")
     print("="*70)
+    print(f"Prompt: {args.prompt}")
 
-    # Format prompt for Llama 3.2
-    formatted_prompt = format_llama3_prompt(args.prompt)
-    print(f"\nPrompt: {args.prompt}")
+    # CPU Run
+    cpu_config = base_config.model_copy(deep=True)
+    cpu_config.device = "cpu"
+    
+    _, cpu_tps, cpu_ttf = run_session(cpu_config, args.prompt, "CPU")
 
-    # Run CPU inference
-    print("\n" + "-"*70)
-    print("Running on CPU...")
-    print("-"*70)
-    try:
-        cpu_text, cpu_time = run_cpu_inference(args.cpu_model, formatted_prompt)
-        print(f"CPU Output: {cpu_text[:200]}{'...' if len(cpu_text) > 200 else ''}")
-        print(f"CPU Time: {cpu_time:.2f}s")
-    except Exception as e:
-        print(f"CPU Error: {e}")
-        cpu_time = None
-
-    # Run NPU inference
-    print("\n" + "-"*70)
-    print("Running on NPU...")
-    print("-"*70)
-    try:
-        npu_text, npu_time = run_npu_inference(formatted_prompt, verbose=False)
-        print(f"NPU Output: {npu_text[:200]}{'...' if len(npu_text) > 200 else ''}")
-        print(f"NPU Time: {npu_time:.2f}s")
-    except Exception as e:
-        print(f"NPU Error: {e}")
-        npu_time = None
+    # NPU Run
+    npu_config = base_config.model_copy(deep=True)
+    npu_config.device = "qnn"
+    
+    _, npu_tps, npu_ttf = run_session(npu_config, args.prompt, "NPU")
 
     # Compare
     print("\n" + "="*70)
     print("Performance Summary")
     print("="*70)
-    if cpu_time and npu_time:
-        speedup = cpu_time / npu_time
-        print(f"CPU Time:    {cpu_time:6.2f}s")
-        print(f"NPU Time:    {npu_time:6.2f}s")
-        print(f"Speedup:     {speedup:6.2f}x {'(NPU faster)' if speedup > 1 else '(CPU faster)'}")
+    
+    print(f"{'Metric':<20} | {'CPU':<10} | {'NPU':<10} | {'Speedup':<10}")
+    print("-" * 60)
+    
+    tps_speedup = npu_tps / cpu_tps if cpu_tps > 0 else 0
+    print(f"{'Tokens/Sec':<20} | {cpu_tps:<10.2f} | {npu_tps:<10.2f} | {tps_speedup:<10.2f}x")
+    
+    ttf_speedup = cpu_ttf / npu_ttf if npu_ttf > 0 else 0
+    print(f"{'Time to First (s)':<20} | {cpu_ttf:<10.4f} | {npu_ttf:<10.4f} | {ttf_speedup:<10.2f}x")
 
-        if speedup > 1:
-            print(f"\n✅ NPU is {speedup:.2f}x faster than CPU!")
-        else:
-            print(f"\n⚠️  NPU is slower than CPU ({1/speedup:.2f}x)")
-            print("Note: This may be due to:")
-            print("  - Cold start overhead")
-            print("  - Model optimization differences")
-            print("  - Short prompt/generation length")
-    elif cpu_time:
-        print(f"CPU Time:    {cpu_time:6.2f}s")
-        print("NPU Time:    Failed")
-    elif npu_time:
-        print("CPU Time:    Failed")
-        print(f"NPU Time:    {npu_time:6.2f}s")
-    else:
-        print("Both CPU and NPU failed to run")
-
-    print("="*70)
-
+    if tps_speedup > 1:
+        print(f"\n✅ NPU is {tps_speedup:.2f}x faster than CPU (throughput)!")
+    elif cpu_tps > 0 and npu_tps > 0:
+        print(f"\n⚠️  NPU is slower than CPU ({1/tps_speedup:.2f}x)")
 
 if __name__ == "__main__":
     main()
