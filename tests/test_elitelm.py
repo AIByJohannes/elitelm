@@ -72,7 +72,7 @@ def test_resolve_qnn_sdk_root_detects_qairt(monkeypatch, tmp_path, elitelm_modul
     assert result == qairt_dir.resolve()
 
 
-def test_default_backend_path_prefers_arm64x_on_windows(monkeypatch, tmp_path, elitelm_module):
+def test_default_backend_path_prefers_aarch64_on_windows(monkeypatch, tmp_path, elitelm_module):
     monkeypatch.setattr(elitelm_module.sys, "platform", "win32")
     sdk_root = tmp_path / "sdk"
 
@@ -85,8 +85,8 @@ def test_default_backend_path_prefers_arm64x_on_windows(monkeypatch, tmp_path, e
     (aarch_dir / "QnnHtp.dll").write_bytes(b"")
 
     backend, arch = elitelm_module._default_backend_path(sdk_root)
-    assert arch == "arm64x-windows-msvc"
-    assert backend == (arm64x_dir / "QnnHtp.dll").resolve()
+    assert arch == "aarch64-windows-msvc"
+    assert backend == (aarch_dir / "QnnHtp.dll").resolve()
 
 
 def test_configure_qnn_provider_sets_options(monkeypatch, tmp_path, elitelm_module):
