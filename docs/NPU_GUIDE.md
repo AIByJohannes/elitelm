@@ -1,207 +1,144 @@
 # NPU Guide for EliteLM
 
-This guide provides a comprehensive overview of how to set up, use, and test the Hexagon NPU with EliteLM on Snapdragon-powered devices.
+This guide details how to run Large Language Models (LLMs) on the **Qualcomm Hexagon NPU** using **EliteLM**. It leverages the **Genie** (Gen AI Inference Extensions) architecture via `onnxruntime-genai` to achieve high-performance, low-power inference on Snapdragon X Elite devices.
 
-## Table of Contents
+## 1. Why Use the NPU?
 
-1.  [**Introduction to NPU Execution**](#introduction-to-npu-execution)
-    *   [Why Use the NPU?](#why-use-the-npu)
-    *   [Core Technology Stack](#core-technology-stack)
-2.  [**Setup and Configuration**](#setup-and-configuration)
-    *   [Prerequisites](#prerequisites)
-    *   [Model Requirements](#model-requirements)
-    *   [Configuration](#configuration)
-3.  [**Running on the NPU**](#running-on-the-npu)
-    *   [Python Wrapper (Recommended)](#python-wrapper-recommended)
-    *   [Direct Genie Execution](#direct-genie-execution)
-4.  [**NPU Verification and Testing**](#npu-verification-and-testing)
-    *   [Three-Tier Testing Strategy](#three-tier-testing-strategy)
-    *   [How to Run Tests](#how-to-run-tests)
-    *   [Interpreting Test Results](#interpreting-test-results)
-5.  [**Troubleshooting**](#troubleshooting)
-    *   [Common Errors](#common-errors)
-    *   [Understanding Skip Messages](#understanding-skip-messages)
-6.  [**Technical Details**](#technical-details)
-    *   [Architecture](#architecture)
-    *   [Observable Signals for Verification](#observable-signals-for-verification)
+The Hexagon NPU (Neural Processing Unit) is a specialized accelerator for INT8 matrix operations. Compared to CPU inference:
+*   **Higher Throughput**: Significantly faster token generation (often 4-5x speedup).
+*   **Lower Latency**: Faster prompt processing, especially in "burst" mode.
+*   **Power Efficiency**: Offloads compute from the CPU, extending battery life.
+
+### Genie vs. Standard ONNX
+EliteLM uses the **Genie** workflow (via QNN), which is distinct from running standard ONNX models:
+*   **Standard ONNX**: Runs operators individually; may fall back to CPU if an op isn't supported on NPU.
+*   **Genie / QNN Context**: Executes the entire model (or large subgraphs) as a pre-compiled "context binary" on the NPU. This minimizes overhead and maximizes hardware utilization.
 
 ---
 
-## 1. Introduction to NPU Execution
+## 2. Prerequisites
 
-### Why Use the NPU?
+### Hardware & OS
+*   **Device**: Snapdragon X Elite or X Plus (e.g., Surface Laptop 7, Dell XPS 13 9345).
+*   **OS**: Windows 11 on Arm.
+*   **Memory**: At least 16GB RAM recommended (NPU shares system memory).
 
-The Neural Processing Unit (NPU) is a specialized processor designed to accelerate machine learning workloads. By offloading model inference to the NPU, you can achieve significant performance gains and power savings compared to running on the CPU.
-
-### Core Technology Stack
-
--   **Qualcomm Neural Processing (QNN) SDK**: The foundational toolkit for running models on Snapdragon NPUs.
--   **ONNX Runtime with QNN Execution Provider**: The primary bridge for Python developers to access the NPU. `onnxruntime-qnn` is the key Python package.
--   **Genie Runtime**: Qualcomm's official high-performance inference engine for running LLMs on the Hexagon NPU.
-
----
-
-## 2. Setup and Configuration
-
-### Prerequisites
-
-1.  **Hardware**: A PC with a Snapdragon X Elite or Snapdragon X Plus chip.
-2.  **Python**: Python 3.11.
-3.  **QNN SDK**: Download and extract the [Qualcomm AI Engine Direct SDK](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk) to the `qairt/` directory. You will need the path to the SDK directory.
+### Software Dependencies
+1.  **Python 3.11**: The supported version for the Qualcomm AI stack.
+2.  **Visual C++ Redistributable (ARM64)**: Required for QNN libraries.
+3.  **Qualcomm AI Engine Direct SDK (QNN)**:
+    *   Download from [Qualcomm Developer Network](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk).
+    *   Extract to `qairt/` in the project root (e.g., `qairt/2.37.0.250724`).
 4.  **Python Packages**:
     ```bash
     pip install onnxruntime-genai onnxruntime-qnn
     ```
-5.  **Visual C++ Redistributable**: Ensure you have the latest Visual C++ Redistributable (ARM64) installed.
 
-### Model Requirements
+### Model Requirements (Critical)
+You cannot use standard `.onnx` or `.gguf` files directly on the NPU. You need a **Genie-compatible model** containing **QNN context binaries**.
 
-To run on the Hexagon NPU, a model must be:
+**Recommended Model (Llama 3.2 3B):**
+We recommend the `llmware/llama-3.2-3b-onnx-qnn` repository, which contains the complete set of compiled binaries.
 
-1.  **Quantized**: The NPU is optimized for integer arithmetic.
-2.  **Static-Shaped**: The model must have fixed input and output shapes.
+```bash
+# Download to the cpu_and_mobile directory
+huggingface-cli download llmware/llama-3.2-3b-onnx-qnn --local-dir ./cpu_and_mobile/llama-3.2-3b-onnx-qnn
+```
 
-For this project, a compatible Llama 3.2 3B model is provided under `cpu_and_mobile/llama-3.2-3b-npu-complete/`.
+> **Warning**: The `onnx-community/Llama-3.2-3B-instruct-hexagon-npu-assets` repository contains *only* config files and tokenizers. It is **missing** the actual inference binaries. Do not use it alone.
 
-> **Model file naming**: We standardize on `model.onnx` for the exported graph. Older drops may still include `ort_model.onnx`; rename or copy it to `model.onnx` so automation (CLI, tests, and utilities) can find the model without extra configuration. The tooling will still fall back to the legacy filename to ease migrations.
+---
 
-### Configuration
+## 3. Configuration
 
-In your `llama3-qa.yaml` file, configure the `device` and `qnn` sections to enable NPU execution.
+Configure `llama3-npu.yaml` to point to your downloaded model and select the `qnn` device.
 
 ```yaml
-# ... other settings
-runtime:
-  device: qnn # Use 'qnn' for NPU, 'cpu' for CPU
-  # ...
+# Path to the directory containing .onnx context binaries and genai_config.json
+model: ./cpu_and_mobile/llama-3.2-3b-onnx-qnn
+
+# Device selection: 'qnn' for NPU, 'cpu' for CPU
+device: qnn
+
+generation:
+  max_length: 2048
+  do_sample: true
+  top_p: 0.95
+  temperature: 0.8
 
 qnn:
   # Path to your extracted QNN SDK
   sdk_root: ./qairt/2.37.0.250724
-  # Optional: override backend path if auto-detection fails
+  # Optional: override backend path (usually auto-detected)
   backend: null
 ```
 
 ---
 
-## 3. Running on the NPU
+## 4. Running Inference
 
-### Python Wrapper (Recommended)
-
-The `run_npu_model.py` script provides an easy way to interact with the NPU-accelerated model.
-
+### Single Prompt (NPU)
+Use the wrapper script to run a quick check:
 ```bash
-# Activate your virtual environment
-.venv\Scripts\activate
-
-# Run with a default prompt
-python run_npu_model.py
-
-# Run with a custom prompt
-python run_npu_model.py "What is artificial intelligence?"
+python run_npu_model.py "Why is the sky blue?"
 ```
 
+### CPU vs. NPU Benchmark
+Compare performance directly:
+```bash
+python compare_cpu_npu.py "Explain quantum computing in simple terms."
+```
+*Look for "Gen TPS" (Tokens Per Second) in the output. NPU should be significantly higher.*
+
 ### API Server
-
-You can run the OpenAI-compatible API server on the NPU. Ensure your `llama3-qa.yaml` is configured with `device: qnn`.
-
+Run the OpenAI-compatible API on the NPU:
 ```bash
 uvicorn api:app --host 0.0.0.0 --port 8000
 ```
-
-### Benchmarking
-
-To verify performance gains, use the comparison script which runs the same prompt on both CPU and NPU using the `ChatSession` runtime:
-
-```bash
-python compare_cpu_npu.py "Why is the sky blue?"
-```
-
-### Direct Genie Execution
-
-You can also run the model directly using the Genie runtime executable.
-
-```bash
-cd cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle
-./genie-t2t-run.exe -c genie_config.json -p "Your prompt here"
-```
+*(Ensure `llama3-qa.yaml` or your active config is set to `device: qnn`)*
 
 ---
 
-## 4. NPU Verification and Testing
+## 5. Technical Details
 
-A comprehensive **three-tier testing strategy** is implemented to validate that the NPU is being used correctly.
+### The "Context Binary"
+The files named `prompt_*_qnn_ctx.onnx` and `token_*_qnn_ctx.onnx` are wrappers around **QNN Context Binaries**.
+*   These contain the model graph *compiled specifically for the Hexagon DSP*.
+*   They are non-portable (specific to the Snapdragon architecture).
+*   `onnxruntime-genai` loads these binaries and delegates execution directly to the QNN HTP backend.
 
-### Three-Tier Testing Strategy
-
--   **Tier 1: Build-Time Availability**: Verifies that QNN support is compiled into `onnxruntime-genai`. Runs on all systems.
--   **Tier 2: Session Configuration**: Validates that the QNN provider is configured correctly, without requiring hardware. Runs on all systems.
--   **Tier 3: Actual NPU Execution**: Hardware-specific integration tests that confirm the model is executing on the NPU and not falling back to the CPU. These tests only run on Snapdragon devices.
-
-### How to Run Tests
-
--   **Run all tests (Tier 3 will skip on non-NPU machines)**:
-    ```bash
-    pytest tests/
-    ```
--   **Run only NPU-specific tests (requires NPU hardware)**:
-    ```bash
-    pytest tests/test_npu_verification.py -v -s
-    ```
--   **Run only non-hardware tests (for CI/CD on CPU-only runners)**:
-    ```bash
-    pytest tests/ -m "not requires_npu"
-    ```
-
-### Interpreting Test Results
-
--   ✅ **All Pass**: Your system is correctly configured, and the NPU is working.
--   ⏭️ **Some Skips (Tier 3)**: Normal on CPU-only machines. Not an error.
--   ❌ **Failures**: Indicate a problem with your setup, the model, or the hardware.
+### Memory Constraints
+The Hexagon NPU has limited directly addressable memory (often ~4GB for the NPU subsystem).
+*   **Model Size**: 3B parameter models (quantized to INT8) fit comfortably. 7B models may require aggressive quantization or hybrid scheduling (splitting layers between CPU/NPU), which Genie handles but can impact performance.
+*   **Quantization**: INT8 is mandatory for best performance. FP16 is supported but much slower on this NPU generation.
 
 ---
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 ### Common Errors
 
--   **`Unable to load backend` or `QNN HTP backend failed to load`**:
-    -   Ensure the Visual C++ Redistributable (ARM64) is installed.
-    -   Verify the `sdk_root` path in your `llama3-qa.yaml` is correct.
-    -   Check that `QnnHtp.dll` exists in the specified SDK path.
--   **`RuntimeError: Operator X not supported by QNN EP`**:
-    -   The model is not compatible with the NPU. Ensure you are using a correctly quantized model with static shapes.
--   **Slow Performance**:
-    -   The first run has cold-start overhead. Subsequent runs should be faster.
-    -   Long prompts naturally take longer to process.
+**1. `File doesn't exist` or `Load model ... failed`**
+*   **Cause**: Missing QNN context binaries.
+*   **Fix**: You likely downloaded the `onnx-community` assets repo which is incomplete. Download the full model from `llmware/llama-3.2-3b-onnx-qnn` as described in [Prerequisites](#prerequisites).
 
-### Understanding Skip Messages
+**2. `Unknown value "sliding_window_key_value_cache"`**
+*   **Cause**: Your `onnxruntime-genai` version is older than the model's config schema.
+*   **Fix**:
+    *   **Option A**: Upgrade: `pip install --upgrade onnxruntime-genai` (v0.5.0+).
+    *   **Option B**: EliteLM automatically patches this in memory for older versions, so simply re-running `run_npu_model.py` should work.
 
--   **`"QNN not available..."`**: `onnxruntime-genai` was not installed with QNN support. Install `onnxruntime-qnn`.
--   **`"QNN SDK not found..."`**: The QNN SDK path is incorrect or the `QNN_SDK_ROOT` environment variable is not set.
--   **`"Test model not found..."`**: The required quantized test model is missing from the `cpu_and_mobile/` directory.
+**3. `Unable to load backend` / `QNN HTP backend failed to load`**
+*   **Cause**: QNN SDK not found or missing DLL dependencies.
+*   **Fix**:
+    *   Verify `sdk_root` in `llama3-npu.yaml`.
+    *   Install **Visual C++ Redistributable for ARM64**.
+    *   Ensure `QnnHtp.dll` is present in the SDK `bin` folder.
 
----
+**4. `Unknown chip model name ...` (cpuinfo warning)**
+*   **Cause**: `py-cpuinfo` library doesn't yet recognize Snapdragon X Elite.
+*   **Fix**: Ignore it. This is a benign warning and does not affect NPU inference.
 
-## 6. Technical Details
-
-### Architecture
-
-The NPU execution flow is as follows:
-1.  The user prompt is tokenized.
-2.  The tokenized input is fed into the QNN context binaries (`.bin` files).
-3.  The Genie runtime orchestrates the execution on the Hexagon NPU.
-4.  The NPU generates output tokens, which are detokenized into text.
-
-Genie is used for its direct optimization for the Hexagon NPU and native support for QNN context binaries, which is Qualcomm's recommended approach.
-
-### Observable Signals for Verification
-
-To be certain the NPU is active, the test suite looks for these signals:
-
--   **Performance Difference**: The execution time on the NPU should be measurably different from the CPU.
--   **Model Loading**: The model loads successfully using the QNN provider without exceptions.
--   **Inference Execution**: The model generates output without runtime errors.
--   **Output Validity**: The generated tokens are valid and can be decoded into reasonable text.
-
-By combining these checks, we gain high confidence that the NPU is not only active but also producing correct results.
+**5. Slow Performance (First Run)**
+*   **Cause**: Graph initialization and caching.
+*   **Fix**: The first prompt may take a few seconds to start. Subsequent prompts will be much faster.
