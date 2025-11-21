@@ -1,5 +1,6 @@
 model: ./cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4
 device: cpu
+# chat_template: llama3  # Optional: "llama3", "phi3", "chatml"
 
 generation:
   min_length: 32
