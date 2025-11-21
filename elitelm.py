@@ -367,6 +367,14 @@ class ChatSession:
 
     @property
     def device_label(self) -> str:
+        """Return the actual device being used by the model."""
+        if hasattr(self.model, "device_type"):
+            dtype = self.model.device_type.lower()
+            if "qnn" in dtype:
+                return "QNN"
+            if "cpu" in dtype:
+                return "CPU"
+            return dtype.upper()
         return "QNN" if getattr(self.args, "device", "cpu") == "qnn" else "CPU"
 
     def reset_history(self) -> None:

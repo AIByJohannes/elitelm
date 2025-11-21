@@ -6,7 +6,7 @@ Compare CPU vs NPU inference performance for Llama models using EliteLM ChatSess
 import argparse
 import sys
 import time
-from copy import deepcopy
+from pathlib import Path
 
 from elitelm import ChatSession, load_config, AppConfig
 
@@ -19,9 +19,13 @@ def run_session(config: AppConfig, prompt: str, label: str) -> tuple[str, float,
         session = ChatSession(config)
         print(f"Model loaded on {session.device_label}")
         
-        # Force timings on
-        session.args.runtime.timings = True
-        # Also update search options if needed, but config should have them.
+        # Validate device matches expectation
+        expected_device = "QNN" if config.device == "qnn" else "CPU"
+        if session.device_label != expected_device:
+            raise RuntimeError(
+                f"Device mismatch! Expected {expected_device} but got {session.device_label}. "
+                f"Model may not have loaded with device={config.device}"
+            )
         
         print("Generating...")
         result = session.generate(prompt, timings=True)
@@ -32,15 +36,65 @@ def run_session(config: AppConfig, prompt: str, label: str) -> tuple[str, float,
         if result.stats:
             print(f"Time to first token: {result.stats.time_to_first_token:.4f}s")
             print(f"Gen TPS: {result.stats.generated_tokens_per_second:.2f}")
-            return text, result.stats.generated_tokens_per_second, result.stats.time_to_first_token
+            tps = result.stats.generated_tokens_per_second
+            ttf = result.stats.time_to_first_token
         else:
-            return text, 0.0, 0.0
+            tps = 0.0
+            ttf = 0.0
+        
+        # Explicit cleanup
+        del session
+        return text, tps, ttf
 
+    except FileNotFoundError as e:
+        print(f"Error: Model or config file not found for {label}: {e}")
+        return "", 0.0, 0.0
+    except RuntimeError as e:
+        if "QNN" in str(e) or "device mismatch" in str(e).lower():
+            print(f"Error: QNN/NPU not available for {label}: {e}")
+            print("Tip: Check QNN SDK installation and NPU hardware availability")
+        else:
+            print(f"Runtime error on {label}: {e}")
+        return "", 0.0, 0.0
     except Exception as e:
-        print(f"Error running on {label}: {e}")
+        print(f"Unexpected error running on {label}: {e}")
         import traceback
         traceback.print_exc()
         return "", 0.0, 0.0
+
+def check_prerequisites(config: AppConfig) -> bool:
+    """Validate that prerequisites for NPU testing are met."""
+    try:
+        import onnxruntime_genai as og
+    except ImportError:
+        print("⚠️  Warning: onnxruntime_genai not installed")
+        return False
+    
+    # Check if QNN is compiled in
+    try:
+        if not og.is_qnn_available():
+            print("⚠️  Warning: QNN is not available in onnxruntime-genai")
+            print("NPU test will likely fail. Continuing anyway...")
+            return False
+    except AttributeError:
+        print("⚠️  Warning: is_qnn_available() not found in onnxruntime-genai")
+        return False
+    
+    # Check if model directory exists
+    model_dir = Path(config.model)
+    if not model_dir.exists():
+        print(f"❌ Error: Model directory not found: {model_dir}")
+        return False
+    
+    # Check if model has genai_config.json for QNN
+    genai_config = model_dir / "genai_config.json"
+    if not genai_config.exists():
+        print(f"⚠️  Warning: {genai_config} not found")
+        print("Model may not be configured for QNN/NPU execution")
+        return False
+        
+    return True
+
 
 def main():
     parser = argparse.ArgumentParser(description="Compare CPU vs NPU inference performance")
@@ -53,6 +107,11 @@ def main():
     except Exception as e:
         print(f"Failed to load config: {e}")
         sys.exit(1)
+
+    # Pre-flight checks
+    print("Running pre-flight checks...")
+    check_prerequisites(base_config)
+    print()
 
     print("="*70)
     print("CPU vs NPU Performance Comparison")
@@ -87,7 +146,7 @@ def main():
 
     if tps_speedup > 1:
         print(f"\n✅ NPU is {tps_speedup:.2f}x faster than CPU (throughput)!")
-    elif cpu_tps > 0 and npu_tps > 0:
+    elif cpu_tps > 0 and npu_tps > 0 and tps_speedup > 0:
         print(f"\n⚠️  NPU is slower than CPU ({1/tps_speedup:.2f}x)")
 
 if __name__ == "__main__":
