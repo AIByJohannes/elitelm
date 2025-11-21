@@ -115,7 +115,7 @@ def _default_backend_path(sdk_root: Path) -> tuple[Path, str]:
     if not lib_root.exists():
         raise FileNotFoundError(f"Unable to locate {lib_name} in the QNN SDK lib directory")
 
-    priorities = ["arm64x", "aarch64", "x86_64"] if is_windows else ["aarch64", "x86_64"]
+    priorities = ["aarch64", "arm64x", "x86_64"] if is_windows else ["aarch64", "x86_64"]
     best_candidate = None
 
     for arch_dir in sorted(p for p in lib_root.iterdir() if p.is_dir()):
