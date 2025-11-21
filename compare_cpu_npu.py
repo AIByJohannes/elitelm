@@ -98,37 +98,43 @@ def check_prerequisites(config: AppConfig) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="Compare CPU vs NPU inference performance")
-    parser.add_argument("-c", "--config", default="llama3-qa.yaml", help="Path to config file")
+    parser.add_argument("-c", "--cpu-config", default="llama3-qa.yaml", help="Path to CPU config file")
+    parser.add_argument("-n", "--npu-config", default="llama3-npu.yaml", help="Path to NPU config file")
     parser.add_argument("prompt", nargs="?", default="What is the capital of France?", help="Input prompt")
     args = parser.parse_args()
-
-    try:
-        base_config = load_config(args.config)
-    except Exception as e:
-        print(f"Failed to load config: {e}")
-        sys.exit(1)
-
-    # Pre-flight checks
-    print("Running pre-flight checks...")
-    check_prerequisites(base_config)
-    print()
 
     print("="*70)
     print("CPU vs NPU Performance Comparison")
     print("="*70)
     print(f"Prompt: {args.prompt}")
+    print()
 
     # CPU Run
-    cpu_config = base_config.model_copy(deep=True)
-    cpu_config.device = "cpu"
+    try:
+        cpu_config = load_config(args.cpu_config)
+        print(f"CPU Config: {args.cpu_config} (model: {cpu_config.model})")
+    except Exception as e:
+        print(f"Failed to load CPU config: {e}")
+        sys.exit(1)
     
     _, cpu_tps, cpu_ttf = run_session(cpu_config, args.prompt, "CPU")
 
     # NPU Run
-    npu_config = base_config.model_copy(deep=True)
-    npu_config.device = "qnn"
-    
-    _, npu_tps, npu_ttf = run_session(npu_config, args.prompt, "NPU")
+    try:
+        npu_config = load_config(args.npu_config)
+        print(f"\nNPU Config: {args.npu_config} (model: {npu_config.model})")
+        
+        # Pre-flight checks for NPU
+        print("Running NPU pre-flight checks...")
+        check_prerequisites(npu_config)
+        print()
+    except Exception as e:
+        print(f"Failed to load NPU config: {e}")
+        print("Skipping NPU test.")
+        npu_tps, npu_ttf = 0.0, 0.0
+    else:
+        _, npu_tps, npu_ttf = run_session(npu_config, args.prompt, "NPU")
+
 
     # Compare
     print("\n" + "="*70)

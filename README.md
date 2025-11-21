@@ -68,11 +68,23 @@ EliteLM is divided into three main parts:
     ```
 3.  **Download and extract the Qualcomm AI Engine Direct SDK:**
     Download the SDK from [Qualcomm AI Engine Direct SDK](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk) and extract the contents to the `qairt/` directory.
-4.  **Download the model:**
+4.  **Download the Genie-compatible model:**
+    > **Important**: You must use `huggingface-cli` to download the pre-compiled Genie model bundle. Ensure it's installed and authenticated.
+    
     ```bash
-    huggingface-cli download onnx-community/Llama-3.2-3B-Instruct-ONNX --include cpu_and_mobile/* --local-dir .
+    huggingface-cli download Volko76/Llama-3.2-3B-Genie-Compatible-QNN-Binaries --local-dir ./cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle
     ```
-    Each quantized model directory should expose its primary graph as `model.onnx`. If you download older exports that still ship an `ort_model.onnx`, copy or rename it to `model.onnx` so the runtime and tests pick it up automatically (they still fall back to the legacy name for compatibility).
+    This downloads the complete Genie bundle including the `genie-t2t-run.exe` executable, QNN context binaries (`*.bin`), DLLs, and tokenizer.
+    
+    If `huggingface-cli` is not found, install it:
+    ```bash
+    pip install huggingface-hub
+    ```
+    
+    Then authenticate with your Hugging Face account (optional but recommended for faster downloads):
+    ```bash
+    huggingface-cli login
+    ```
 5.  **Create your runtime config:**
     ```bash
     cp llama3-qa.example.yaml llama3-qa.yaml

@@ -304,6 +304,49 @@ def _load_model(args) -> tuple[og.Model, og.Tokenizer, og.TokenizerStream]:
         raise FileNotFoundError(f"Model directory not found: {model_dir}")
 
     if args.device == "qnn":
+        # Pre-sanitize genai_config.json for older onnxruntime-genai that may not
+        # understand newer fields like "sliding_window_key_value_cache".
+        genai_cfg_path = model_dir / "genai_config.json"
+        if genai_cfg_path.exists():
+            try:
+                import onnxruntime_genai as _og
+                version = getattr(_og, "__version__", "0.0")
+                needs_patch = False
+                # Version 0.11.2 still doesn't support sliding_window_key_value_cache
+                # so we check by attempting a quick parse test rather than version sniffing.
+                try:
+                    import json as _json
+                    test_cfg = {"model": {"decoder": {"sliding_window_key_value_cache": {"window_size": 1}}}}
+                    test_json = _json.dumps(test_cfg)
+                    # Try to see if og.Config would accept it (we can't actually test without a model)
+                    # Instead, just always attempt the translation if the field exists
+                    needs_patch = True
+                except Exception:
+                    needs_patch = True
+                if needs_patch:
+                    import json as _json
+                    data = _json.loads(genai_cfg_path.read_text(encoding="utf-8"))
+                    decoder = (
+                        data.get("model", {})
+                            .get("decoder", {})
+                    )
+                    if "sliding_window_key_value_cache" in decoder and "sliding_window" not in decoder:
+                        sw = decoder.get("sliding_window_key_value_cache", {})
+                        # Map to older schema keys.
+                        mapped = {
+                            "window_size": sw.get("window_size", 128),
+                            "pad_value": sw.get("pad_value", 128),
+                            "alignment": "left",
+                            "slide_key_value_cache": True,
+                        }
+                        decoder.pop("sliding_window_key_value_cache", None)
+                        decoder["sliding_window"] = mapped
+                        # Write back only if modified.
+                        genai_cfg_path.write_text(_json.dumps(data, indent=4), encoding="utf-8")
+            except Exception:
+                # Non-fatal; continue with normal loading.
+                pass
+
         config = _configure_qnn_provider(
             model_dir,
             getattr(args, "qnn_sdk", None),
