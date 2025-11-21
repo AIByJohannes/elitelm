@@ -115,7 +115,7 @@ def _default_backend_path(sdk_root: Path) -> tuple[Path, str]:
     if not lib_root.exists():
         raise FileNotFoundError(f"Unable to locate {lib_name} in the QNN SDK lib directory")
 
-    priorities = ["aarch64", "arm64x", "x86_64"] if is_windows else ["aarch64", "x86_64"]
+    priorities = ["arm64x", "aarch64", "x86_64"] if is_windows else ["aarch64", "x86_64"]
     best_candidate = None
 
     for arch_dir in sorted(p for p in lib_root.iterdir() if p.is_dir()):
@@ -204,6 +204,7 @@ class AppConfig(BaseModel):
     qnn: QnnConfig = Field(default_factory=QnnConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    chat_template: Optional[str] = None
     config_path: Optional[str] = None
 
     @property
@@ -249,6 +250,10 @@ class AppConfig(BaseModel):
     @property
     def do_sample(self) -> bool:
         return self.generation.do_sample
+
+    @property
+    def template(self) -> str | None:
+        return self.chat_template
 
 
 def _load_yaml_config(path: str | Path) -> AppConfig:
@@ -367,28 +372,79 @@ class ChatSession:
     def reset_history(self) -> None:
         self.chat_history.clear()
 
+    def _apply_custom_template(self, chat_messages: list[dict[str, str]], template_name: str) -> str:
+        """Apply a custom chat template based on a preset name."""
+        prompt_parts: list[str] = []
+        
+        if template_name == "llama3":
+            # Llama 3 format
+            for message in chat_messages:
+                role = message["role"]
+                content = message["content"]
+                prompt_parts.append(f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>")
+            prompt_parts.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
+            
+        elif template_name == "phi3":
+            # Phi-3 format
+            for message in chat_messages:
+                role = message["role"]
+                content = message["content"]
+                prompt_parts.append(f"<{role}>\n{content}<|end|>\n")
+            prompt_parts.append("<|assistant|>\n")
+            
+        elif template_name == "chatml":
+            # ChatML format
+            for message in chat_messages:
+                role = message["role"]
+                content = message["content"]
+                prompt_parts.append(f"<|im_start|>{role}\n{content}<|im_end|>\n")
+            prompt_parts.append("<|im_start|>assistant\n")
+            
+        else:
+            # Fallback to simple user/assistant if unknown or just use the raw string if it looks like a format?
+            # For now, just log warning and fallback to default behavior or simple format
+            print(f"Warning: Unknown template '{template_name}', using fallback.")
+            return self._apply_custom_template(chat_messages, "llama3") # Default to llama3-like if unknown? Or maybe just return empty to trigger fallback?
+
+        return "".join(prompt_parts)
+
     def _build_prompt(self, user_text: str) -> tuple[str, list[dict[str, str]]]:
         chat_messages = list(self.chat_history)
         chat_messages.append({"role": "user", "content": user_text})
+        
+        # 1. Check for custom configured template
+        custom_template = getattr(self.args, "chat_template", None)
+        if custom_template:
+            prompt = self._apply_custom_template(chat_messages, custom_template)
+            return prompt, chat_messages
+
+        # 2. Try tokenizer's chat template
         if hasattr(self.tokenizer, "apply_chat_template"):
-            prompt = self.tokenizer.apply_chat_template(
-                json.dumps(chat_messages),
-                add_generation_prompt=True,
-            )
+            try:
+                prompt = self.tokenizer.apply_chat_template(
+                    json.dumps(chat_messages),
+                    add_generation_prompt=True,
+                )
+                return prompt, chat_messages
+            except Exception:
+                # Fallback if apply_chat_template fails (e.g. missing in tokenizer config)
+                pass
+
+        # 3. Fallback manual construction (Llama-3 style default)
+        if self.chat_history:
+            prompt_parts: list[str] = []
+            for message in chat_messages:
+                role = message["role"]
+                content = message["content"]
+                if role == "assistant":
+                    prompt_parts.append(f"<|assistant|>\n{content} <|end|>\n")
+                else:
+                    prompt_parts.append(f"<|user|>\n{content} <|end|>\n")
+            prompt_parts.append("<|assistant|>")
+            prompt = "".join(prompt_parts)
         else:
-            if self.chat_history:
-                prompt_parts: list[str] = []
-                for message in chat_messages:
-                    role = message["role"]
-                    content = message["content"]
-                    if role == "assistant":
-                        prompt_parts.append(f"<|assistant|>\n{content} <|end|>\n")
-                    else:
-                        prompt_parts.append(f"<|user|>\n{content} <|end|>\n")
-                prompt_parts.append("<|assistant|>")
-                prompt = "".join(prompt_parts)
-            else:
-                prompt = self._fallback_template.format(input=user_text)
+            prompt = self._fallback_template.format(input=user_text)
+            
         return prompt, chat_messages
 
     def generate(
