@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-from elitelm import ChatSession, load_config, AppConfig
+from .session import ChatSession, load_config, AppConfig
 
 # --- Pydantic Models for OpenAI API ---
 

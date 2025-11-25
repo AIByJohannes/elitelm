@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elitelm"
+version = "0.1.0"
+description = "EliteLM: Local LLM runner with NPU support"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "onnxruntime-genai",
+    "pyyaml",
+    "pydantic",
+    "fastapi",
+    "uvicorn"
+]
+
+[project.scripts]
+elitelm = "elitelm.cli:main"
