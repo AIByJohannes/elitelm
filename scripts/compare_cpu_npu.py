@@ -11,8 +11,12 @@ import sys
 import time
 from pathlib import Path
 
+# Add project root to path for imports
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from elitelm import ChatSession, load_config, AppConfig
-from run_npu_model import run_npu_inference, format_llama3_prompt, GENIE_EXE
+from scripts.run_npu_model import run_npu_inference, format_llama3_prompt, GENIE_EXE
 
 def run_cpu_session(config: AppConfig, prompt: str) -> tuple[str, float, float]:
     """Run inference on CPU using onnxruntime-genai."""
@@ -69,7 +73,7 @@ def run_npu_session(prompt: str) -> tuple[str, float, float]:
         formatted_prompt = format_llama3_prompt(prompt)
         
         # Load tokenizer to count tokens accurately
-        tokenizer_path = Path(__file__).parent / "cpu_and_mobile" / "llama-3.2-3b-npu-complete" / "genie_bundle" / "tokenizer.json"
+        tokenizer_path = PROJECT_ROOT / "cpu_and_mobile" / "llama-3.2-3b-npu-complete" / "genie_bundle" / "tokenizer.json"
         token_count = None
         if tokenizer_path.exists():
             try:

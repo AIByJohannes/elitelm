@@ -10,8 +10,9 @@ import sys
 import time
 from pathlib import Path
 
-
-GENIE_BUNDLE_DIR = Path(__file__).parent / "cpu_and_mobile" / "llama-3.2-3b-npu-complete" / "genie_bundle"
+# Project root is one level up from scripts/
+PROJECT_ROOT = Path(__file__).parent.parent
+GENIE_BUNDLE_DIR = PROJECT_ROOT / "cpu_and_mobile" / "llama-3.2-3b-npu-complete" / "genie_bundle"
 GENIE_EXE = GENIE_BUNDLE_DIR / "genie-t2t-run.exe"
 GENIE_CONFIG = GENIE_BUNDLE_DIR / "genie_config.json"
 
