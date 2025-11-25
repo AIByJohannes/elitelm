@@ -151,7 +151,7 @@ The script will automatically update the DLL search path and configure the QNN e
 To compare CPU vs NPU performance using the same runtime:
 
 ```bash
-python compare_cpu_npu.py --config llama3-qa.yaml "Your prompt here"
+python scripts/compare_cpu_npu.py --config llama3-qa.yaml "Your prompt here"
 ```
 
 This script runs the prompt on both devices (overriding the `device` setting in the config) and reports tokens per second (TPS) and time-to-first-token (TTF).
@@ -176,6 +176,7 @@ Run tests using `pytest`. For more details on the testing strategy, see `docs/NP
 │       ├── session.py      # Core runtime for model loading and generation
 │       ├── cli.py          # Interactive command-line client
 │       └── api.py          # FastAPI server
+├── scripts/            # Utility scripts (benchmarking, testing)
 ├── docs/
 │   └── NPU_GUIDE.md    # NPU setup and testing guide
 ├── tests/              # Pytest test suite
