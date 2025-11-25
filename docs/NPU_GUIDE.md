@@ -21,12 +21,8 @@ This guide details how to run Large Language Models (LLMs) on the **Qualcomm Hex
 
 > ⚠️ **Note**: The theoretical benefits below are NOT currently realized with the Genie subprocess workflow. See the warning above.
 
-The Hexagon NPU (Neural Processing Unit) is a specialized accelerator for INT8 matrix operations. In theory, compared to CPU inference:
-*   **Higher Throughput**: Potentially faster token generation (in optimized scenarios).
-*   **Lower Latency**: Faster prompt processing in "burst" mode (when properly warmed up).
-*   **Power Efficiency**: Offloads compute from the CPU, extending battery life.
-
-**Current Reality**: The overhead of subprocess invocation and lack of persistent model loading negates these benefits. Future versions may integrate a persistent NPU server or native Python bindings.
+The Hexagon NPU (Neural Processing Unit) is a specialized accelerator for INT8 matrix operations. It offloads compute from the CPU, extending battery life.
+The power efficiency comes at the cost of performance. 
 
 ### Genie Native vs. ONNX Runtime
 EliteLM now uses the **Genie Native** workflow, which differs from `onnxruntime-genai`:
@@ -37,19 +33,19 @@ EliteLM now uses the **Genie Native** workflow, which differs from `onnxruntime-
 
 ## 2. Prerequisites
 
-### Hardware & OS
+### Hardware
 *   **Device**: Snapdragon X Elite or X Plus (e.g., Surface Laptop 7, Dell XPS 13 9345).
 *   **OS**: Windows 11 on Arm.
 *   **Memory**: At least 16GB RAM recommended (NPU shares system memory).
 
-### Software Dependencies
+### Software
 1.  **Python 3.11**: The supported version for the Qualcomm AI stack.
 2.  **Visual C++ Redistributable (ARM64)**: Required for QNN libraries.
 3.  **Qualcomm AI Engine Direct SDK (QNN)**:
     *   Download from [Qualcomm Developer Network](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk).
     *   Extract to `qairt/` in the project root (e.g., `qairt/2.37.0.250724`).
 
-### Model Requirements (Critical)
+### Model Requirements 
 You need a **Genie-compatible model bundle** containing **QNN context binaries** and the Genie executable.
 
 **Recommended Model (Llama 3.2 3B):**
@@ -136,8 +132,3 @@ The Hexagon NPU has limited directly addressable memory (often ~4GB for the NPU 
 **3. `[WARN] "Unable to initialize logging in backend extensions."`**
 *   **Cause**: Benign warning from the QNN backend.
 *   **Fix**: Ignore it.
-
-**4. Slow Performance (First Run)**
-*   **Cause**: Graph initialization and caching.
-*   **Fix**: The first prompt may take a few seconds to start. Subsequent prompts will be much faster.
-
