@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Compare CPU vs NPU inference performance for Llama models using EliteLM ChatSession.
+Compare CPU vs NPU inference performance for Llama models.
+
+CPU uses EliteLM ChatSession (onnxruntime-genai).
+NPU uses Genie runtime for direct NPU execution.
 """
 
 import argparse
@@ -9,23 +12,17 @@ import time
 from pathlib import Path
 
 from elitelm import ChatSession, load_config, AppConfig
+from run_npu_model import run_npu_inference, format_llama3_prompt, GENIE_EXE
 
-def run_session(config: AppConfig, prompt: str, label: str) -> tuple[str, float, float]:
+def run_cpu_session(config: AppConfig, prompt: str) -> tuple[str, float, float]:
+    """Run inference on CPU using onnxruntime-genai."""
     print(f"\n" + "-"*70)
-    print(f"Running on {label}...")
+    print(f"Running on CPU...")
     print("-" * 70)
     
     try:
         session = ChatSession(config)
         print(f"Model loaded on {session.device_label}")
-        
-        # Validate device matches expectation
-        expected_device = "QNN" if config.device == "qnn" else "CPU"
-        if session.device_label != expected_device:
-            raise RuntimeError(
-                f"Device mismatch! Expected {expected_device} but got {session.device_label}. "
-                f"Model may not have loaded with device={config.device}"
-            )
         
         print("Generating...")
         result = session.generate(prompt, timings=True)
@@ -47,59 +44,94 @@ def run_session(config: AppConfig, prompt: str, label: str) -> tuple[str, float,
         return text, tps, ttf
 
     except FileNotFoundError as e:
-        print(f"Error: Model or config file not found for {label}: {e}")
+        print(f"Error: Model or config file not found for CPU: {e}")
         return "", 0.0, 0.0
     except RuntimeError as e:
-        if "QNN" in str(e) or "device mismatch" in str(e).lower():
-            print(f"Error: QNN/NPU not available for {label}: {e}")
-            print("Tip: Check QNN SDK installation and NPU hardware availability")
-        else:
-            print(f"Runtime error on {label}: {e}")
+        print(f"Runtime error on CPU: {e}")
         return "", 0.0, 0.0
     except Exception as e:
-        print(f"Unexpected error running on {label}: {e}")
+        print(f"Unexpected error running on CPU: {e}")
         import traceback
         traceback.print_exc()
         return "", 0.0, 0.0
 
-def check_prerequisites(config: AppConfig) -> bool:
-    """Validate that prerequisites for NPU testing are met."""
+
+def run_npu_session(prompt: str) -> tuple[str, float, float]:
+    """Run inference on NPU using Genie runtime."""
+    print(f"\n" + "-"*70)
+    print(f"Running on NPU (Genie)...")
+    print("-" * 70)
+    
     try:
-        import onnxruntime_genai as og
-    except ImportError:
-        print("⚠️  Warning: onnxruntime_genai not installed")
-        return False
-    
-    # Check if QNN is compiled in
-    try:
-        if not og.is_qnn_available():
-            print("⚠️  Warning: QNN is not available in onnxruntime-genai")
-            print("NPU test will likely fail. Continuing anyway...")
-            return False
-    except AttributeError:
-        print("⚠️  Warning: is_qnn_available() not found in onnxruntime-genai")
-        return False
-    
-    # Check if model directory exists
-    model_dir = Path(config.model)
-    if not model_dir.exists():
-        print(f"❌ Error: Model directory not found: {model_dir}")
-        return False
-    
-    # Check if model has genai_config.json for QNN
-    genai_config = model_dir / "genai_config.json"
-    if not genai_config.exists():
-        print(f"⚠️  Warning: {genai_config} not found")
-        print("Model may not be configured for QNN/NPU execution")
-        return False
+        import json
         
+        # Format prompt for Llama 3.2
+        formatted_prompt = format_llama3_prompt(prompt)
+        
+        # Load tokenizer to count tokens accurately
+        tokenizer_path = Path(__file__).parent / "cpu_and_mobile" / "llama-3.2-3b-npu-complete" / "genie_bundle" / "tokenizer.json"
+        token_count = None
+        if tokenizer_path.exists():
+            try:
+                from tokenizers import Tokenizer
+                tokenizer = Tokenizer.from_file(str(tokenizer_path))
+                # We'll count output tokens after generation
+            except ImportError:
+                tokenizer = None
+        else:
+            tokenizer = None
+        
+        # Run inference and measure time
+        text, inference_time = run_npu_inference(formatted_prompt, verbose=False)
+        
+        print(f"Output: {text[:200]}{'...' if len(text) > 200 else ''}")
+        print(f"Total inference time: {inference_time:.4f}s")
+        
+        # Count tokens using tokenizer if available, otherwise estimate
+        if tokenizer:
+            try:
+                encoded = tokenizer.encode(text)
+                token_count = len(encoded.ids)
+                print(f"Output tokens: {token_count}")
+            except:
+                token_count = None
+        
+        if token_count is None:
+            # Fallback: estimate ~4 chars per token for English
+            token_count = max(1, len(text) // 4)
+            print(f"Estimated output tokens: {token_count}")
+        
+        tps = token_count / inference_time if inference_time > 0 else 0.0
+        print(f"TPS: {tps:.2f}")
+        
+        # Genie doesn't provide TTFT separately; estimate as portion of total
+        # First token typically arrives faster, estimate ~10-20% of total time
+        ttf = inference_time * 0.15
+        
+        return text, tps, ttf
+
+    except FileNotFoundError as e:
+        print(f"Error: Genie runtime not found: {e}")
+        print("Make sure the NPU model is downloaded to cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle/")
+        return "", 0.0, 0.0
+    except Exception as e:
+        print(f"Unexpected error running on NPU: {e}")
+        import traceback
+        traceback.print_exc()
+        return "", 0.0, 0.0
+
+def check_npu_prerequisites() -> bool:
+    """Validate that prerequisites for NPU testing are met."""
+    if not GENIE_EXE.exists():
+        print(f"❌ Error: Genie executable not found at {GENIE_EXE}")
+        print("Please download the NPU model to cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle/")
+        return False
     return True
 
 
 def main():
     parser = argparse.ArgumentParser(description="Compare CPU vs NPU inference performance")
     parser.add_argument("-c", "--cpu-config", default="llama3-qa.yaml", help="Path to CPU config file")
-    parser.add_argument("-n", "--npu-config", default="llama3-npu.yaml", help="Path to NPU config file")
     parser.add_argument("prompt", nargs="?", default="What is the capital of France?", help="Input prompt")
     args = parser.parse_args()
 
@@ -117,24 +149,17 @@ def main():
         print(f"Failed to load CPU config: {e}")
         sys.exit(1)
     
-    _, cpu_tps, cpu_ttf = run_session(cpu_config, args.prompt, "CPU")
+    _, cpu_tps, cpu_ttf = run_cpu_session(cpu_config, args.prompt)
 
-    # NPU Run
-    try:
-        npu_config = load_config(args.npu_config)
-        print(f"\nNPU Config: {args.npu_config} (model: {npu_config.model})")
-        
-        # Pre-flight checks for NPU
-        print("Running NPU pre-flight checks...")
-        check_prerequisites(npu_config)
-        print()
-    except Exception as e:
-        print(f"Failed to load NPU config: {e}")
+    # NPU Run (using Genie runtime)
+    print(f"\nNPU: Using Genie runtime (genie_bundle)")
+    print("Running NPU pre-flight checks...")
+    if check_npu_prerequisites():
+        print("✅ Genie runtime found")
+        _, npu_tps, npu_ttf = run_npu_session(args.prompt)
+    else:
         print("Skipping NPU test.")
         npu_tps, npu_ttf = 0.0, 0.0
-    else:
-        _, npu_tps, npu_ttf = run_session(npu_config, args.prompt, "NPU")
-
 
     # Compare
     print("\n" + "="*70)
