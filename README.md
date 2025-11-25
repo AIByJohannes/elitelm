@@ -2,6 +2,8 @@
 
 **EliteLM** is a high-performance inference server for large language models, optimized for PCs equipped with the Snapdragon X Elite ARM chip. It allows you to run language models locally on your machine with the best performance.
 
+**Inference with EliteLM is ~2x the speed of Ollama!**
+
 ## Features
 
 *   **Hardware Accelerated Inference:** Leverages the QNN for efficient and fast inference on Snapdragon X Elite/Plus PCs.
