@@ -1,13 +1,32 @@
 # NPU Guide for EliteLM
 
-This guide details how to run Large Language Models (LLMs) on the **Qualcomm Hexagon NPU** using **EliteLM**. It leverages the **Genie** (Gen AI Inference Extensions) architecture directly via the `genie-t2t-run` executable to achieve maximum performance and low-power inference on Snapdragon X Elite devices.
+> ⚠️ **Info: NPU inference is currently NOT recommended for most use cases.**
+>
+> My benchmarks show that the **CPU is significantly faster** than the NPU for LLM inference with the current Genie runtime:
+>
+> | Metric            | CPU        | NPU        | Speedup   |
+> |-------------------|------------|------------|-----------|
+> | Tokens/Sec        | 36.64      | 1.08       | 0.03x     |
+> | Time to First (s) | 0.0000     | 0.9710     | 0.00x     |
+>
+> **The CPU is ~34x faster than the NPU** in my tests. This is because Qualcomm optimized NPU for power efficiency, sacrificing generation speed. 
+>
+> **Recommendation**: Use CPU inference (`chat_cli.py` or `elitelm.ChatSession`) for best performance. The NPU scripts are provided for experimental purposes only.
 
-## 1. Why Use the NPU?
+---
 
-The Hexagon NPU (Neural Processing Unit) is a specialized accelerator for INT8 matrix operations. Compared to CPU inference:
-*   **Higher Throughput**: Significantly faster token generation (often 4-5x speedup).
-*   **Lower Latency**: Faster prompt processing, especially in "burst" mode.
+This guide details how to run Large Language Models (LLMs) on the **Qualcomm Hexagon NPU** using **EliteLM**. It leverages the **Genie** (Gen AI Inference Extensions) architecture directly via the `genie-t2t-run` executable for experimental NPU inference on Snapdragon X Elite devices.
+
+## 1. Why Use the NPU? (Experimental)
+
+> ⚠️ **Note**: The theoretical benefits below are NOT currently realized with the Genie subprocess workflow. See the warning above.
+
+The Hexagon NPU (Neural Processing Unit) is a specialized accelerator for INT8 matrix operations. In theory, compared to CPU inference:
+*   **Higher Throughput**: Potentially faster token generation (in optimized scenarios).
+*   **Lower Latency**: Faster prompt processing in "burst" mode (when properly warmed up).
 *   **Power Efficiency**: Offloads compute from the CPU, extending battery life.
+
+**Current Reality**: The overhead of subprocess invocation and lack of persistent model loading negates these benefits. Future versions may integrate a persistent NPU server or native Python bindings.
 
 ### Genie Native vs. ONNX Runtime
 EliteLM now uses the **Genie Native** workflow, which differs from `onnxruntime-genai`:
@@ -48,27 +67,35 @@ The expected structure in `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle
 
 ## 3. Configuration
 
-The `run_npu_model.py` script is hardcoded to look for the Genie bundle in:
+The `scripts/run_npu_model.py` script is hardcoded to look for the Genie bundle in:
 `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle`
 
 Ensure your model files are placed there.
 
 ---
 
-## 4. Running Inference
+## 4. Running Inference (Experimental)
+
+> ⚠️ **Reminder**: CPU inference is recommended. Use `python chat_cli.py` for best performance.
 
 ### Single Prompt (NPU)
 Use the wrapper script to run a prompt on the NPU:
 ```bash
-python run_npu_model.py "Why is the sky blue?"
+python scripts/run_npu_model.py "Why is the sky blue?"
 ```
 
 This script wraps `genie-t2t-run.exe`, handling prompt formatting (Llama 3.2 style) and output parsing.
 
+### CPU vs NPU Comparison
+To benchmark CPU vs NPU performance:
+```bash
+python scripts/compare_cpu_npu.py "Your prompt here"
+```
+
 ### System Prompts
 You can also provide a system prompt:
 ```bash
-python run_npu_model.py "Who are you?" --system "You are a helpful assistant named EliteLM."
+python scripts/run_npu_model.py "Who are you?" --system "You are a helpful assistant named EliteLM."
 ```
 
 ---
