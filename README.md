@@ -1,10 +1,10 @@
 # EliteLM
 
-**EliteLM** is a high-performance inference server for large language models, optimized for PCs equipped with the Qualcomm Hexagon NPU (part of the Snapdragon X Elite chip). It allows you to run state-of-the-art language models locally on your machine with hardware acceleration.
+**EliteLM** is a high-performance inference server for large language models, optimized for PCs equipped with the Snapdragon X Elite ARM chip. It allows you to run language models locally on your machine with the best performance.
 
 ## Features
 
-*   **Hardware Accelerated Inference:** Leverages the Hexagon NPU for efficient and fast inference on Snapdragon X Elite/Plus PCs.
+*   **Hardware Accelerated Inference:** Leverages the QNN for efficient and fast inference on Snapdragon X Elite/Plus PCs.
 *   **Flexible Runtime:** A reusable, core runtime module (`elitelm.py`) handles configuration, model loading, and token generation.
 *   **ONNX Runtime:** Uses the ONNX Runtime to run models, ensuring compatibility and performance.
 *   **Interactive CLI:** Includes an interactive command-line interface (`elitelm run`) for easy testing and experimentation.
@@ -20,6 +20,24 @@ EliteLM is divided into three main parts:
 1.  **A reusable runtime module** (`src/elitelm/session.py`) that handles configuration parsing, model loading, and token generation.
 2.  **A command-line interface (CLI)** (`src/elitelm/cli.py`) for interactive testing and experimentation.
 3.  **A FastAPI server** (`src/elitelm/api.py`) for exposing the model's functionality as a web API.
+
+## Project Structure
+
+```
+.
+├── pyproject.toml      # Project configuration and dependencies
+├── src/
+│   └── elitelm/
+│       ├── __init__.py     # Package initialization
+│       ├── session.py      # Core runtime for model loading and generation
+│       ├── cli.py          # Interactive command-line client
+│       └── api.py          # FastAPI server
+├── scripts/            # Utility scripts (benchmarking, testing)
+├── docs/
+│   └── NPU_GUIDE.md    # NPU setup and testing guide
+├── tests/              # Pytest test suite
+└── README.md           # This file
+```
 
 ### Core Components
 
@@ -165,20 +183,4 @@ The project includes a comprehensive three-tier testing strategy to validate NPU
 
 Run tests using `pytest`. For more details on the testing strategy, see `docs/NPU_GUIDE.md`.
 
-## Project Structure
 
-```
-.
-├── pyproject.toml      # Project configuration and dependencies
-├── src/
-│   └── elitelm/
-│       ├── __init__.py     # Package initialization
-│       ├── session.py      # Core runtime for model loading and generation
-│       ├── cli.py          # Interactive command-line client
-│       └── api.py          # FastAPI server
-├── scripts/            # Utility scripts (benchmarking, testing)
-├── docs/
-│   └── NPU_GUIDE.md    # NPU setup and testing guide
-├── tests/              # Pytest test suite
-└── README.md           # This file
-```
