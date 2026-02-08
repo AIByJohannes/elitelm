@@ -51,22 +51,7 @@ EliteLM is divided into three main parts:
 
 ## Roadmap
 
-- [x] **Core Runtime (`session.py`)**
-    - [x] Load model and tokenizer.
-    - [x] Run inference on CPU.
-    - [x] **Run inference on NPU.**
-    - [ ] **Add support for more LLMs.**
-- [x] **Interactive CLI (`cli.py`)**
-    - [x] Implement interactive prompt loop.
-- [x] **Inference Server (`api.py`)**
-    - [x] **Create a FastAPI application.**
-    - [x] **Implement an OpenAI Chat Completions compatible endpoint that takes a prompt and returns a response.**
-    - [x] **Integrate functionality from `session.py` into the server.**
-    - [ ] **Implement error handling.**
-    - [ ] **Add logging.**
-- [x] **Advanced Features**
-    - [x] **Add a streaming endpoint for real-time generation.**
-    - [ ] **Implement a Streamlit app demo for interacting with the LLMs .**
+See `docs/roadmap.md`.
 
 ## Requirements
 
