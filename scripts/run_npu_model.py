@@ -32,6 +32,45 @@ def format_llama3_prompt(user_message: str, system_message: str = None) -> str:
         )
 
 
+def validate_npu_environment() -> None:
+    """
+    Validate that all required NPU artifacts are present.
+    Raises FileNotFoundError with a helpful message if anything is missing.
+    """
+    if not GENIE_BUNDLE_DIR.exists():
+        raise FileNotFoundError(
+            f"NPU bundle directory not found at: {GENIE_BUNDLE_DIR}\n"
+            "Please create this directory and populate it as described in docs/NPU_GUIDE.md"
+        )
+
+    required_files = [
+        "genie-t2t-run.exe",
+        "genie_config.json",
+        "tokenizer.json",
+        "Genie.dll",
+        "QnnHtp.dll",
+        "QnnSystem.dll",
+        "QnnGenAiTransformer.dll",
+    ]
+
+    missing = []
+    for fname in required_files:
+        if not (GENIE_BUNDLE_DIR / fname).exists():
+            missing.append(fname)
+
+    # Check for at least one context binary
+    has_bin = any(GENIE_BUNDLE_DIR.glob("*.bin"))
+    if not has_bin:
+        missing.append("*.bin (Context Binaries)")
+
+    if missing:
+        raise FileNotFoundError(
+            f"Missing required NPU artifacts in {GENIE_BUNDLE_DIR}:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+            + "\n\nPlease refer to docs/NPU_GUIDE.md for setup instructions."
+        )
+
+
 def run_npu_inference(prompt: str, verbose: bool = True) -> tuple[str, float]:
     """
     Run inference on NPU using Genie.
@@ -43,11 +82,7 @@ def run_npu_inference(prompt: str, verbose: bool = True) -> tuple[str, float]:
     Returns:
         Tuple of (generated_text, inference_time_seconds)
     """
-    if not GENIE_EXE.exists():
-        raise FileNotFoundError(
-            f"Genie executable not found at {GENIE_EXE}. "
-            "Please download the NPU model first."
-        )
+    validate_npu_environment()
 
     # If prompt doesn't contain Llama 3.2 format markers, format it
     if "<|begin_of_text|>" not in prompt:

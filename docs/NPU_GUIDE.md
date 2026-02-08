@@ -51,13 +51,30 @@ You need a **Genie-compatible model bundle** containing **QNN context binaries**
 **Recommended Model (Llama 3.2 3B):**
 We recommend using the `Volko76/Llama-3.2-3B-Genie-Compatible-QNN-Binaries` repository or generating your own using Qualcomm AI Hub.
 
-The expected structure in `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle` is:
-*   `genie-t2t-run.exe`: The inference executable.
-*   `genie_config.json`: Configuration for the model.
-*   `htp_backend_ext_config.json`: Backend configuration.
-*   `tokenizer.json`: The model's tokenizer.
-*   `*.bin`: The compiled model context binaries.
-*   `*.dll`: Required QNN and Genie libraries (copied from SDK).
+### Genie Bundle Layout
+The runtime expects the following file structure in the model directory (e.g., `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle`).
+
+#### Executables & Configs
+*   `genie-t2t-run.exe`: The main inference executable.
+*   `genie_config.json`: Configuration defining model parameters and context binary paths.
+*   `htp_backend_ext_config.json`: QNN backend configuration.
+*   `tokenizer.json`: Hugging Face style tokenizer definition.
+
+#### Context Binaries
+*   `*.bin` (e.g., `llama_v3_2_3b_instruct_part_1_of_3.bin`): The model compiled for Hexagon.
+
+#### Required DLLs
+These libraries must be present in the same directory (typically copied from the QNN SDK `lib` and `bin` folders):
+
+| Category | Files |
+| :--- | :--- |
+| **Core QNN** | `QnnSystem.dll`, `QnnHtp.dll`, `QnnHtpPrepare.dll` |
+| **Genie** | `Genie.dll`, `QnnGenAiTransformer.dll`, `QnnGenAiTransformerModel.dll` |
+| **Hexagon V73** | `QnnHtpv73Stub.dll`, `QnnHtpv73CalculatorStub.dll` |
+| **Extensions** | `QnnHtpNetRunExtensions.dll` |
+| **Helpers** | `PlatformValidatorShared.dll` |
+
+> **Note**: The "V73" in filenames refers to the Hexagon DSP version (Snapdragon X Elite uses v73). Ensure these match your specific device hardware.
 
 ---
 

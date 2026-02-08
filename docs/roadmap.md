@@ -1,18 +1,10 @@
 # Roadmap
 
-## Runtime Focus
-
-- [x] **Core Runtime (`session.py`)**
-    - [x] Load model and tokenizer.
-    - [x] Run inference on CPU.
-    - [x] Run inference on NPU.
-    - [ ] Add support for more LLMs.
-
 ## NPU Mode (Genie Runtime)
 
 - [ ] **Keep Genie as the NPU runtime**
-    - [ ] Document the supported Genie bundle layout and required DLLs.
-    - [ ] Add explicit runtime checks and helpful errors when Genie artifacts are missing.
+    - [x] Document the supported Genie bundle layout and required DLLs.
+    - [x] Add explicit runtime checks and helpful errors when Genie artifacts are missing.
 - [ ] **Genie bindings without PowerShell**
     - [ ] Use existing Python bindings (e.g., `qai_appbuilder`) instead of custom C++/Rust.
     - [ ] Replace PowerShell-based flows with direct Python calls into the Genie runtime.
@@ -27,6 +19,13 @@
     - [ ] Add a reproducible build script and binary packaging for the custom build.
     - [ ] Integrate a fast CPU execution path in `session.py` that selects the custom llama.cpp backend.
     - [ ] Add performance benchmarks and a CPU-vs-NPU comparison report.
+
+## Runtime Focus
+
+- [x] **Core Runtime (`session.py`)**
+    - [x] Load model and tokenizer.
+    - [x] Run inference on CPU.
+    - [x] Run inference on NPU.
 
 ## CLI + API Server
 
@@ -43,3 +42,4 @@
 
 - [x] Add a streaming endpoint for real-time generation.
 - [ ] Implement a Streamlit app demo for interacting with the LLMs.
+- [ ] Add support for more LLMs.
