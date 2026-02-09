@@ -31,3 +31,19 @@ Attempted to download the pre-compiled ARM64 Windows binary from the official re
 ## Summary of Findings
 - **Optimized Path:** To use `llama.cpp` on Snapdragon X Elite, it MUST be compiled with **Clang** to enable ARM-specific instructions. MSVC is currently unsupported for the GGML ARM backend.
 - **Next Step:** Ensure LLVM/Clang is installed via VS Installer (or a manual LLVM install), then build from the submodule using the clang toolset or the `arm64-windows-llvm-release` CMake preset (if available in the submodule).
+
+## Simplified Setup
+
+To quickly set up the required environment variables for building `llama.cpp` (or installing `llama-cpp-python`) on Windows ARM64, use the provided helper script.
+
+1.  **Open PowerShell.**
+2.  **Run the initialization script (Dot-Source it):**
+    ```powershell
+    . .\scripts\init_env.ps1
+    ```
+    This command will locate your Visual Studio installation and activate the ARM64 developer environment (setting `CC`, `CXX`, and `PATH` for Clang/CMake).
+3.  **Verify:**
+    ```powershell
+    clang --version
+    cmake --version
+    ```
