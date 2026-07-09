@@ -1,0 +1,14 @@
+default_backend: genie_npu
+
+backends:
+  genie_npu:
+    kind: genie
+    bundle_dir: ./cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle
+    genie_config: ./cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle/genie_config.json
+    htp_config: ./cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle/htp_backend_ext_config.json
+    qnn_sdk_root: ./qairt/2.37.0.250724
+    tokenizer_path: ./cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle/tokenizer.json
+    genie_config_template: ./cpu_and_mobile/llama-3.2-3b-npu-complete/configs/genie/llama_v3_2_3b_instruct.json
+    htp_config_template: ./cpu_and_mobile/llama-3.2-3b-npu-complete/configs/htp/htp_backend_ext_config.json.template
+    soc_model: 60
+    dsp_arch: v73

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fs, mem};
 
 use anyhow::{Result as AnyResult, anyhow};
 use serde::{Deserialize, Serialize};
@@ -71,10 +71,47 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BackendConfig {
-    pub kind: String,
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum BackendConfig {
+    Fake(FakeBackendConfig),
+    Genie(Box<GenieBackendConfig>),
+    #[serde(rename = "llamacpp")]
+    LlamaCpp,
+}
+
+impl BackendConfig {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Fake(_) => "fake",
+            Self::Genie(_) => "genie",
+            Self::LlamaCpp => "llamacpp",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FakeBackendConfig {
     #[serde(default)]
     pub response_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GenieBackendConfig {
+    pub bundle_dir: PathBuf,
+    pub genie_config: PathBuf,
+    pub htp_config: PathBuf,
+    pub qnn_sdk_root: PathBuf,
+    pub tokenizer_path: PathBuf,
+    pub genie_config_template: PathBuf,
+    pub htp_config_template: PathBuf,
+    #[serde(default = "default_soc_model")]
+    pub soc_model: u32,
+    #[serde(default = "default_dsp_arch")]
+    pub dsp_arch: String,
+    #[serde(default)]
+    pub genie_executable: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +135,29 @@ impl AppConfig {
         };
         config.resolve_backend_name(None)?;
         Ok(config)
+    }
+
+    pub fn resolve_paths_relative_to(&mut self, base_dir: &Path) {
+        for backend in self.backends.values_mut() {
+            let BackendConfig::Genie(config) = backend else {
+                continue;
+            };
+            let config = config.as_mut();
+
+            config.bundle_dir = resolve_path(base_dir, mem::take(&mut config.bundle_dir));
+            config.genie_config = resolve_path(base_dir, mem::take(&mut config.genie_config));
+            config.htp_config = resolve_path(base_dir, mem::take(&mut config.htp_config));
+            config.qnn_sdk_root = resolve_path(base_dir, mem::take(&mut config.qnn_sdk_root));
+            config.tokenizer_path = resolve_path(base_dir, mem::take(&mut config.tokenizer_path));
+            config.genie_config_template =
+                resolve_path(base_dir, mem::take(&mut config.genie_config_template));
+            config.htp_config_template =
+                resolve_path(base_dir, mem::take(&mut config.htp_config_template));
+            config.genie_executable = config
+                .genie_executable
+                .take()
+                .map(|path| resolve_path(base_dir, path));
+        }
     }
 
     pub fn resolve_backend_name<'a>(
@@ -129,28 +189,10 @@ pub fn load_config_file(path: impl AsRef<Path>) -> Result<AppConfig, CoreError> 
         path: path.to_path_buf(),
         source,
     })?;
-    AppConfig::from_yaml_str(&input)
-}
-
-pub fn create_backend(
-    config: &AppConfig,
-    requested_backend: Option<&str>,
-) -> Result<Box<dyn InferenceBackend>, CoreError> {
-    let (name, backend) = config.backend(requested_backend)?;
-    match backend.kind.as_str() {
-        "fake" => Ok(Box::new(FakeBackend::new(
-            name,
-            backend.response_prefix.as_deref(),
-        ))),
-        "genie" | "llamacpp" => Err(CoreError::UnsupportedBackendKind {
-            name: name.to_string(),
-            kind: backend.kind.clone(),
-        }),
-        other => Err(CoreError::UnsupportedBackendKind {
-            name: name.to_string(),
-            kind: other.to_string(),
-        }),
-    }
+    let mut config = AppConfig::from_yaml_str(&input)?;
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    config.resolve_paths_relative_to(base_dir);
+    Ok(config)
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +221,26 @@ impl FakeBackend {
             .ok_or_else(|| anyhow!("messages cannot be empty"))?;
         Ok(format!("{}{}", self.response_prefix, prompt.content))
     }
+}
+
+pub fn create_fake_backend(name: &str, config: &FakeBackendConfig) -> Box<dyn InferenceBackend> {
+    Box::new(FakeBackend::new(name, config.response_prefix.as_deref()))
+}
+
+fn resolve_path(base_dir: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        base_dir.join(path)
+    }
+}
+
+fn default_soc_model() -> u32 {
+    60
+}
+
+fn default_dsp_arch() -> String {
+    "v73".to_string()
 }
 
 impl InferenceBackend for FakeBackend {
@@ -430,7 +492,7 @@ backends:
     #[test]
     fn unknown_backend_name_is_rejected() {
         let config = fake_config();
-        let error = match create_backend(&config, Some("missing")) {
+        let error = match config.backend(Some("missing")) {
             Ok(_) => panic!("expected missing backend to fail"),
             Err(error) => error,
         };
@@ -443,29 +505,81 @@ backends:
     fn unsupported_backend_kind_is_rejected() {
         let config = AppConfig::from_yaml_str(
             r#"
-default_backend: genie_npu
+default_backend: llamacpp_cpu
 backends:
-  genie_npu:
-    kind: genie
+  llamacpp_cpu:
+    kind: llamacpp
 "#,
         )
         .unwrap();
 
-        let error = match create_backend(&config, None) {
-            Ok(_) => panic!("expected unsupported backend to fail"),
-            Err(error) => error,
+        let (name, backend) = config.backend(None).unwrap();
+        let error = CoreError::UnsupportedBackendKind {
+            name: name.to_string(),
+            kind: backend.kind().to_string(),
         };
         assert!(matches!(error, CoreError::UnsupportedBackendKind { .. }));
         assert_eq!(
             error.to_string(),
-            "backend 'genie_npu' uses kind 'genie', which is not supported yet"
+            "backend 'llamacpp_cpu' uses kind 'llamacpp', which is not supported yet"
         );
+    }
+
+    #[test]
+    fn parses_genie_backend_defaults() {
+        let config = AppConfig::from_yaml_str(
+            r#"
+default_backend: genie_npu
+backends:
+  genie_npu:
+    kind: genie
+    bundle_dir: ./bundle
+    genie_config: ./bundle/genie_config.json
+    htp_config: ./bundle/htp_backend_ext_config.json
+    qnn_sdk_root: ./qairt/2.37.0
+    tokenizer_path: ./bundle/tokenizer.json
+    genie_config_template: ./configs/genie.json
+    htp_config_template: ./configs/htp.json.template
+"#,
+        )
+        .unwrap();
+
+        let (_, backend) = config.backend(None).unwrap();
+        let BackendConfig::Genie(genie) = backend else {
+            panic!("expected genie backend");
+        };
+
+        assert_eq!(genie.soc_model, 60);
+        assert_eq!(genie.dsp_arch, "v73");
+        assert_eq!(genie.genie_executable, None);
+    }
+
+    #[test]
+    fn rejects_unknown_backend_fields() {
+        let error = match AppConfig::from_yaml_str(
+            r#"
+default_backend: fake
+backends:
+  fake:
+    kind: fake
+    unexpected: true
+"#,
+        ) {
+            Ok(_) => panic!("expected unknown field to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("unknown field `unexpected`"));
     }
 
     #[test]
     fn fake_backend_streams_deterministic_response() {
         let config = fake_config();
-        let mut backend = create_backend(&config, None).unwrap();
+        let (name, backend_config) = config.backend(None).unwrap();
+        let BackendConfig::Fake(fake_config) = backend_config else {
+            panic!("expected fake backend");
+        };
+        let mut backend = create_fake_backend(name, fake_config);
         let mut text = String::new();
 
         let stats = backend

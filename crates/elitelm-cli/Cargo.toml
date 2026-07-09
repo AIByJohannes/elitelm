@@ -8,7 +8,9 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+elitelm-backend-genie = { path = "../elitelm-backend-genie" }
 elitelm-core = { path = "../elitelm-core" }
 
 [dev-dependencies]
 assert_cmd.workspace = true
+tempfile.workspace = true

@@ -1,15 +1,18 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow::anyhow;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
+use elitelm_backend_genie::GenieBackend;
 use elitelm_core::{
-    AppConfig, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, CoreError,
-    GenerateStats, create_backend, sse_done_line, sse_json_line,
+    AppConfig, BackendConfig, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
+    CoreError, GenerateRequest, GenerateStats, InferenceBackend, create_fake_backend,
+    sse_done_line, sse_json_line,
 };
 use uuid::Uuid;
 
@@ -36,13 +39,22 @@ async fn create_chat_completion(
         return Err(AppError::bad_request("messages cannot be empty"));
     }
 
-    let mut backend = create_backend(&state.config, state.backend_name.as_deref())?;
-    let model = request
-        .model
-        .clone()
-        .unwrap_or_else(|| backend.name().to_string());
+    let model = request.model.clone().unwrap_or_else(|| {
+        state
+            .backend_name
+            .clone()
+            .unwrap_or_else(|| state.config.default_backend.clone())
+    });
     let stream = request.stream;
-    let generated = generate_text(&mut *backend, request.into_generate_request())?;
+    let config = Arc::clone(&state.config);
+    let backend_name = state.backend_name.clone();
+    let generate_request = request.into_generate_request();
+    let generated = tokio::task::spawn_blocking(move || {
+        let mut backend = create_backend_for_server(&config, backend_name.as_deref())?;
+        generate_text(&mut *backend, generate_request)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("generation task failed: {error}")))??;
     let id = format!("chatcmpl-{}", Uuid::new_v4());
     let created = unix_timestamp();
 
@@ -68,7 +80,7 @@ struct GeneratedText {
 
 fn generate_text(
     backend: &mut dyn elitelm_core::InferenceBackend,
-    request: elitelm_core::GenerateRequest,
+    request: GenerateRequest,
 ) -> anyhow::Result<GeneratedText> {
     let mut text = String::new();
     let mut pieces = Vec::new();
@@ -117,6 +129,13 @@ impl AppError {
             message: message.into(),
         }
     }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: message.into(),
+        }
+    }
 }
 
 impl From<CoreError> for AppError {
@@ -149,5 +168,23 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let body = Json(serde_json::json!({ "error": self.message }));
         (self.status, body).into_response()
+    }
+}
+
+fn create_backend_for_server(
+    config: &AppConfig,
+    requested_backend: Option<&str>,
+) -> anyhow::Result<Box<dyn InferenceBackend>> {
+    let (name, backend_config) = config.backend(requested_backend)?;
+    match backend_config {
+        BackendConfig::Fake(fake_config) => Ok(create_fake_backend(name, fake_config)),
+        BackendConfig::Genie(genie_config) => Ok(Box::new(GenieBackend::new(
+            name,
+            genie_config.as_ref().clone(),
+        )?)),
+        BackendConfig::LlamaCpp => Err(anyhow!(CoreError::UnsupportedBackendKind {
+            name: name.to_string(),
+            kind: backend_config.kind().to_string(),
+        })),
     }
 }
