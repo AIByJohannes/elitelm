@@ -2,7 +2,7 @@ use std::ffi::{CStr, CString};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
-use anyhow::{Context, Result as AnyResult, anyhow};
+use anyhow::{Context, Result as AnyResult};
 use elitelm_core::{GenerateRequest, GenerateStats, InferenceBackend, LlamaCppBackendConfig};
 use elitelm_backend_llamacpp_sys as sys;
 use thiserror::Error;

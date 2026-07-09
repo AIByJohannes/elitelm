@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::anyhow;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{StatusCode, header};

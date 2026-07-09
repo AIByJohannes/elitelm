@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/elitelm-backend-genie",
+    "crates/elitelm-backend-genie-sys",
     "crates/elitelm-backend-llamacpp",
     "crates/elitelm-backend-llamacpp-sys",
     "crates/elitelm-core",
@@ -28,6 +29,8 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 tempfile = "3.23"
 thiserror = "2.0"
+libloading = "0.8"
+windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader"] }
 tokio = { version = "1.48", features = ["macros", "net", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
 uuid = { version = "1.18", features = ["v4"] }

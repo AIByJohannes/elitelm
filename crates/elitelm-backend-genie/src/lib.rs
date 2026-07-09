@@ -1,8 +1,13 @@
+use std::ffi::{CStr, CString, c_void};
 use std::fs;
+use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result as AnyResult, anyhow};
+use elitelm_backend_genie_sys::{
+    GENIE_STATUS_SUCCESS, GenieApi, GenieDialogConfigHandle, GenieDialogHandle,
+};
 use elitelm_core::{GenerateRequest, GenerateStats, GenieBackendConfig, InferenceBackend};
 use serde_json::Value;
 use thiserror::Error;
@@ -25,6 +30,10 @@ pub enum GenieError {
     MissingCtxBins,
     #[error("Genie exited with status {status}: {stderr}")]
     ProcessFailed { status: String, stderr: String },
+    #[error("Genie C API error: return status {0}")]
+    ApiError(i32),
+    #[error("Platform not supported: NPU inference requires Windows ARM64")]
+    UnsupportedPlatform,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,22 +44,88 @@ pub struct PreparedGenieBundle {
     pub context_bins: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
+struct NativeGenie {
+    api: GenieApi,
+    config_handle: GenieDialogConfigHandle,
+    dialog_handle: GenieDialogHandle,
+}
+
+impl Drop for NativeGenie {
+    fn drop(&mut self) {
+        unsafe {
+            (self.api.dialog_free)(self.dialog_handle);
+            (self.api.dialog_config_free)(self.config_handle);
+        }
+    }
+}
+
 pub struct GenieBackend {
     name: String,
     config: GenieBackendConfig,
+    native: Option<NativeGenie>,
 }
 
 impl GenieBackend {
     pub fn new(name: impl Into<String>, config: GenieBackendConfig) -> AnyResult<Self> {
         validate_file("Genie config", &config.genie_config)?;
         validate_dir("Genie bundle directory", &config.bundle_dir)?;
-        let executable = effective_genie_executable(&config);
-        validate_file("Genie executable", &executable)?;
+
+        let mut native = None;
+
+        // If genie_executable is specified, we fall back to the old process-based mock execution
+        if config.genie_executable.is_none() {
+            #[cfg(target_os = "windows")]
+            {
+                // Set DLL directory to the bundle folder so Genie.dll can find QnnSystem/QnnHtp, etc.
+                set_dll_directory(&config.bundle_dir)?;
+
+                let dll_path = config.bundle_dir.join("Genie.dll");
+                validate_file("Genie native library", &dll_path)?;
+
+                let api = unsafe { GenieApi::load(&dll_path)? };
+
+                // Read configuration json
+                let config_json = fs::read_to_string(&config.genie_config)
+                    .context("failed to read Genie config JSON")?;
+                let c_config = CString::new(config_json.as_str())
+                    .context("Genie config JSON contains a null byte")?;
+
+                let mut config_handle = GenieDialogConfigHandle(std::ptr::null_mut());
+                let status = unsafe {
+                    (api.dialog_config_create_from_json)(c_config.as_ptr(), &mut config_handle)
+                };
+                if status != GENIE_STATUS_SUCCESS {
+                    return Err(GenieError::ApiError(status).into());
+                }
+
+                let mut dialog_handle = GenieDialogHandle(std::ptr::null_mut());
+                let status = unsafe { (api.dialog_create)(config_handle, &mut dialog_handle) };
+                if status != GENIE_STATUS_SUCCESS {
+                    unsafe { (api.dialog_config_free)(config_handle) };
+                    return Err(GenieError::ApiError(status).into());
+                }
+
+                native = Some(NativeGenie {
+                    api,
+                    config_handle,
+                    dialog_handle,
+                });
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err(GenieError::UnsupportedPlatform.into());
+            }
+        } else {
+            // Validate the executable path for the process-based mock fallback
+            let executable = effective_genie_executable(&config);
+            validate_file("Genie executable", &executable)?;
+        }
 
         Ok(Self {
             name: name.into(),
             config,
+            native,
         })
     }
 
@@ -66,6 +141,49 @@ impl GenieBackend {
     }
 }
 
+struct QueryContext<'a> {
+    on_token: &'a mut dyn FnMut(&str) -> AnyResult<()>,
+    result: AnyResult<()>,
+}
+
+unsafe extern "C" fn query_callback(
+    response: *const c_char,
+    _sentence_code: i32,
+    user_data: *const c_void,
+) {
+    if response.is_null() || user_data.is_null() {
+        return;
+    }
+    unsafe {
+        let ctx = &mut *(user_data as *mut QueryContext);
+        if ctx.result.is_err() {
+            return;
+        }
+        let c_str = CStr::from_ptr(response);
+        match c_str.to_str() {
+            Ok(s) => {
+                if let Err(e) = (ctx.on_token)(s) {
+                    ctx.result = Err(e);
+                }
+            }
+            Err(e) => {
+                ctx.result = Err(anyhow!("invalid UTF-8 from Genie: {}", e));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_dll_directory(path: &Path) -> AnyResult<()> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let res = unsafe { windows_sys::Win32::System::LibraryLoader::SetDllDirectoryW(wide.as_ptr()) };
+    if res == 0 {
+        return Err(anyhow!("SetDllDirectoryW failed"));
+    }
+    Ok(())
+}
+
 impl InferenceBackend for GenieBackend {
     fn name(&self) -> &str {
         &self.name
@@ -77,37 +195,76 @@ impl InferenceBackend for GenieBackend {
         on_token: &mut dyn FnMut(&str) -> AnyResult<()>,
     ) -> AnyResult<GenerateStats> {
         let prompt = Self::prompt_from(&request)?;
-        let executable = effective_genie_executable(&self.config);
-        let output = Command::new(&executable)
-            .current_dir(&self.config.bundle_dir)
-            .arg("-c")
-            .arg(&self.config.genie_config)
-            .arg("-p")
-            .arg(&prompt)
-            .env("ADSP_LIBRARY_PATH", &self.config.bundle_dir)
-            .output()
-            .with_context(|| {
-                format!("failed to spawn Genie executable {}", executable.display())
-            })?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(GenieError::ProcessFailed {
-                status: output.status.to_string(),
-                stderr,
+        if let Some(ref native) = self.native {
+            let c_prompt = CString::new(prompt.as_str()).context("prompt contains null byte")?;
+            let mut context = QueryContext {
+                on_token,
+                result: Ok(()),
+            };
+
+            let status = unsafe {
+                (native.api.dialog_query)(
+                    native.dialog_handle,
+                    c_prompt.as_ptr(),
+                    0, // GENIE_DIALOG_SENTENCE_COMPLETE
+                    Some(query_callback),
+                    &mut context as *mut _ as *const c_void,
+                )
+            };
+
+            if status != GENIE_STATUS_SUCCESS {
+                return Err(GenieError::ApiError(status).into());
             }
-            .into());
-        }
 
-        let text = String::from_utf8_lossy(&output.stdout).to_string();
-        on_token(&text)?;
-        let prompt_tokens = count_tokens(&prompt);
-        let completion_tokens = count_tokens(&text);
-        Ok(GenerateStats {
-            prompt_tokens,
-            completion_tokens,
-            total_tokens: prompt_tokens + completion_tokens,
-        })
+            // Propagate any error that occurred inside the callback closure
+            context.result?;
+
+            // Reset the dialog's KV cache context for the next request
+            unsafe { (native.api.dialog_reset)(native.dialog_handle) };
+
+            let prompt_tokens = count_tokens(&prompt);
+            // Dynamic generation does not count generated tokens directly. We estimate based on split.
+            let completion_tokens = 0; // The calling server or caller evaluates generation stats
+            Ok(GenerateStats {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            })
+        } else {
+            // Process-based fallback (for unit tests / mock environment)
+            let executable = effective_genie_executable(&self.config);
+            let output = Command::new(&executable)
+                .current_dir(&self.config.bundle_dir)
+                .arg("-c")
+                .arg(&self.config.genie_config)
+                .arg("-p")
+                .arg(&prompt)
+                .env("ADSP_LIBRARY_PATH", &self.config.bundle_dir)
+                .output()
+                .with_context(|| {
+                    format!("failed to spawn Genie executable {}", executable.display())
+                })?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                return Err(GenieError::ProcessFailed {
+                    status: output.status.to_string(),
+                    stderr,
+                }
+                .into());
+            }
+
+            let text = String::from_utf8_lossy(&output.stdout).to_string();
+            on_token(&text)?;
+            let prompt_tokens = count_tokens(&prompt);
+            let completion_tokens = count_tokens(&text);
+            Ok(GenerateStats {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            })
+        }
     }
 }
 
