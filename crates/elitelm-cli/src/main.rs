@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 use elitelm_backend_genie::{GenieBackend, prepare_genie_bundle};
+use elitelm_backend_llamacpp::LlamaCppBackend;
 use elitelm_core::{
-    BackendConfig, ChatMessage, CoreError, GenerateRequest, InferenceBackend, create_fake_backend,
+    BackendConfig, ChatMessage, GenerateRequest, InferenceBackend, create_fake_backend,
     load_config_file,
 };
 
@@ -96,10 +97,9 @@ fn create_backend_for_cli(
             name,
             genie_config.as_ref().clone(),
         )?)),
-        BackendConfig::LlamaCpp => Err(CoreError::UnsupportedBackendKind {
-            name: name.to_string(),
-            kind: backend_config.kind().to_string(),
-        }
-        .into()),
+        BackendConfig::LlamaCpp(llama_config) => Ok(Box::new(LlamaCppBackend::new(
+            name,
+            llama_config.as_ref().clone(),
+        )?)),
     }
 }

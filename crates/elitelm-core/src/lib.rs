@@ -76,7 +76,7 @@ pub enum BackendConfig {
     Fake(FakeBackendConfig),
     Genie(Box<GenieBackendConfig>),
     #[serde(rename = "llamacpp")]
-    LlamaCpp,
+    LlamaCpp(Box<LlamaCppBackendConfig>),
 }
 
 impl BackendConfig {
@@ -84,7 +84,7 @@ impl BackendConfig {
         match self {
             Self::Fake(_) => "fake",
             Self::Genie(_) => "genie",
-            Self::LlamaCpp => "llamacpp",
+            Self::LlamaCpp(_) => "llamacpp",
         }
     }
 }
@@ -94,6 +94,20 @@ impl BackendConfig {
 pub struct FakeBackendConfig {
     #[serde(default)]
     pub response_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LlamaCppBackendConfig {
+    pub model: PathBuf,
+    #[serde(default)]
+    pub n_threads: Option<u32>,
+    #[serde(default)]
+    pub n_ctx: Option<u32>,
+    #[serde(default)]
+    pub n_batch: Option<u32>,
+    #[serde(default = "default_use_mmap")]
+    pub use_mmap: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -139,24 +153,31 @@ impl AppConfig {
 
     pub fn resolve_paths_relative_to(&mut self, base_dir: &Path) {
         for backend in self.backends.values_mut() {
-            let BackendConfig::Genie(config) = backend else {
-                continue;
-            };
-            let config = config.as_mut();
-
-            config.bundle_dir = resolve_path(base_dir, mem::take(&mut config.bundle_dir));
-            config.genie_config = resolve_path(base_dir, mem::take(&mut config.genie_config));
-            config.htp_config = resolve_path(base_dir, mem::take(&mut config.htp_config));
-            config.qnn_sdk_root = resolve_path(base_dir, mem::take(&mut config.qnn_sdk_root));
-            config.tokenizer_path = resolve_path(base_dir, mem::take(&mut config.tokenizer_path));
-            config.genie_config_template =
-                resolve_path(base_dir, mem::take(&mut config.genie_config_template));
-            config.htp_config_template =
-                resolve_path(base_dir, mem::take(&mut config.htp_config_template));
-            config.genie_executable = config
-                .genie_executable
-                .take()
-                .map(|path| resolve_path(base_dir, path));
+            match backend {
+                BackendConfig::Genie(config) => {
+                    let config = config.as_mut();
+                    config.bundle_dir = resolve_path(base_dir, mem::take(&mut config.bundle_dir));
+                    config.genie_config =
+                        resolve_path(base_dir, mem::take(&mut config.genie_config));
+                    config.htp_config = resolve_path(base_dir, mem::take(&mut config.htp_config));
+                    config.qnn_sdk_root =
+                        resolve_path(base_dir, mem::take(&mut config.qnn_sdk_root));
+                    config.tokenizer_path =
+                        resolve_path(base_dir, mem::take(&mut config.tokenizer_path));
+                    config.genie_config_template =
+                        resolve_path(base_dir, mem::take(&mut config.genie_config_template));
+                    config.htp_config_template =
+                        resolve_path(base_dir, mem::take(&mut config.htp_config_template));
+                    config.genie_executable = config
+                        .genie_executable
+                        .take()
+                        .map(|path| resolve_path(base_dir, path));
+                }
+                BackendConfig::LlamaCpp(config) => {
+                    config.model = resolve_path(base_dir, mem::take(&mut config.model));
+                }
+                BackendConfig::Fake(_) => {}
+            }
         }
     }
 
@@ -241,6 +262,10 @@ fn default_soc_model() -> u32 {
 
 fn default_dsp_arch() -> String {
     "v73".to_string()
+}
+
+fn default_use_mmap() -> bool {
+    true
 }
 
 impl InferenceBackend for FakeBackend {
@@ -502,27 +527,58 @@ backends:
     }
 
     #[test]
-    fn unsupported_backend_kind_is_rejected() {
+    fn parses_llamacpp_backend_defaults() {
         let config = AppConfig::from_yaml_str(
             r#"
 default_backend: llamacpp_cpu
 backends:
   llamacpp_cpu:
     kind: llamacpp
+    model: ./models/llama.gguf
 "#,
         )
         .unwrap();
 
         let (name, backend) = config.backend(None).unwrap();
-        let error = CoreError::UnsupportedBackendKind {
-            name: name.to_string(),
-            kind: backend.kind().to_string(),
+        assert_eq!(name, "llamacpp_cpu");
+        let BackendConfig::LlamaCpp(llama) = backend else {
+            panic!("expected llamacpp backend");
         };
-        assert!(matches!(error, CoreError::UnsupportedBackendKind { .. }));
-        assert_eq!(
-            error.to_string(),
-            "backend 'llamacpp_cpu' uses kind 'llamacpp', which is not supported yet"
-        );
+        assert_eq!(llama.model, PathBuf::from("./models/llama.gguf"));
+        assert!(llama.use_mmap);
+        assert!(llama.n_threads.is_none());
+        assert!(llama.n_ctx.is_none());
+        assert!(llama.n_batch.is_none());
+    }
+
+    #[test]
+    fn llamacpp_model_path_is_resolved_relative_to_config_dir() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("elitelm.yaml");
+        let mut file = std::fs::File::create(&config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+default_backend: llamacpp_cpu
+backends:
+  llamacpp_cpu:
+    kind: llamacpp
+    model: ./models/llama.gguf
+"#
+        )
+        .unwrap();
+        drop(file);
+
+        let config = crate::load_config_file(&config_path).unwrap();
+        let (_, backend) = config.backend(None).unwrap();
+        let BackendConfig::LlamaCpp(llama) = backend else {
+            panic!("expected llamacpp backend");
+        };
+        // Path should now be absolute, rooted at the temp dir
+        assert!(llama.model.is_absolute());
+        assert!(llama.model.ends_with("models/llama.gguf"));
     }
 
     #[test]

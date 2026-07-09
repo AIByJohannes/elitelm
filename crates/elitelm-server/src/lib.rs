@@ -9,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use elitelm_backend_genie::GenieBackend;
+use elitelm_backend_llamacpp::LlamaCppBackend;
 use elitelm_core::{
     AppConfig, BackendConfig, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
     CoreError, GenerateRequest, GenerateStats, InferenceBackend, create_fake_backend,
@@ -182,9 +183,9 @@ fn create_backend_for_server(
             name,
             genie_config.as_ref().clone(),
         )?)),
-        BackendConfig::LlamaCpp => Err(anyhow!(CoreError::UnsupportedBackendKind {
-            name: name.to_string(),
-            kind: backend_config.kind().to_string(),
-        })),
+        BackendConfig::LlamaCpp(llama_config) => Ok(Box::new(LlamaCppBackend::new(
+            name,
+            llama_config.as_ref().clone(),
+        )?)),
     }
 }
