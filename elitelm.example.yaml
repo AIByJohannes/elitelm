@@ -1,0 +1,6 @@
+default_backend: fake
+
+backends:
+  fake:
+    kind: fake
+    response_prefix: "EliteLM fake response: "

@@ -10,6 +10,7 @@ __pycache__/
 # Distribution and packaging
 dist/
 build/
+target/
 *.egg-info/
 *.egg
 .eggs/
