@@ -52,6 +52,10 @@ pub struct GenerateStats {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_to_first_token_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_time_ms: Option<u64>,
 }
 
 pub trait InferenceBackend: Send {
@@ -294,6 +298,8 @@ impl InferenceBackend for FakeBackend {
             prompt_tokens,
             completion_tokens,
             total_tokens: prompt_tokens + completion_tokens,
+            time_to_first_token_ms: Some(15),
+            generation_time_ms: Some(120),
         })
     }
 }
@@ -669,6 +675,8 @@ backends:
                 prompt_tokens: 1,
                 completion_tokens: 1,
                 total_tokens: 2,
+                time_to_first_token_ms: None,
+                generation_time_ms: None,
             },
         );
         let value = serde_json::to_value(response).unwrap();

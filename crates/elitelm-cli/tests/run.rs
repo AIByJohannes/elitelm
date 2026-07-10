@@ -9,7 +9,7 @@ fn run_uses_fake_backend() {
         .nth(2)
         .unwrap();
 
-    cmd.current_dir(workspace_root)
+    let output = cmd.current_dir(workspace_root)
         .arg("run")
         .arg("--config")
         .arg("elitelm.example.yaml")
@@ -17,9 +17,15 @@ fn run_uses_fake_backend() {
         .arg("fake")
         .arg("--prompt")
         .arg("smoke test")
-        .assert()
-        .success()
-        .stdout("EliteLM fake response: smoke test\n");
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("EliteLM fake response: smoke test"));
+    assert!(stdout.contains("Inference Statistics:"));
+    assert!(stdout.contains("Prompt tokens:     2"));
+    assert!(stdout.contains("Completion tokens: 5"));
 }
 
 #[test]

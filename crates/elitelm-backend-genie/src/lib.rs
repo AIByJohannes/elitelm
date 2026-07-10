@@ -144,6 +144,10 @@ impl GenieBackend {
 struct QueryContext<'a> {
     on_token: &'a mut dyn FnMut(&str) -> AnyResult<()>,
     result: AnyResult<()>,
+    start_time: std::time::Instant,
+    time_to_first_token_ms: Option<u64>,
+    completion_tokens: u32,
+    accumulated_text: String,
 }
 
 unsafe extern "C" fn query_callback(
@@ -162,6 +166,11 @@ unsafe extern "C" fn query_callback(
         let c_str = CStr::from_ptr(response);
         match c_str.to_str() {
             Ok(s) => {
+                if ctx.completion_tokens == 0 {
+                    ctx.time_to_first_token_ms = Some(ctx.start_time.elapsed().as_millis() as u64);
+                }
+                ctx.completion_tokens += 1;
+                ctx.accumulated_text.push_str(s);
                 if let Err(e) = (ctx.on_token)(s) {
                     ctx.result = Err(e);
                 }
@@ -196,11 +205,16 @@ impl InferenceBackend for GenieBackend {
     ) -> AnyResult<GenerateStats> {
         let prompt = Self::prompt_from(&request)?;
 
+        let start_time = std::time::Instant::now();
         if let Some(ref native) = self.native {
             let c_prompt = CString::new(prompt.as_str()).context("prompt contains null byte")?;
             let mut context = QueryContext {
                 on_token,
                 result: Ok(()),
+                start_time,
+                time_to_first_token_ms: None,
+                completion_tokens: 0,
+                accumulated_text: String::new(),
             };
 
             let status = unsafe {
@@ -224,12 +238,14 @@ impl InferenceBackend for GenieBackend {
             unsafe { (native.api.dialog_reset)(native.dialog_handle) };
 
             let prompt_tokens = count_tokens(&prompt);
-            // Dynamic generation does not count generated tokens directly. We estimate based on split.
-            let completion_tokens = 0; // The calling server or caller evaluates generation stats
+            let completion_tokens = count_tokens(&context.accumulated_text);
+            let generation_time_ms = Some(start_time.elapsed().as_millis() as u64);
             Ok(GenerateStats {
                 prompt_tokens,
                 completion_tokens,
                 total_tokens: prompt_tokens + completion_tokens,
+                time_to_first_token_ms: context.time_to_first_token_ms,
+                generation_time_ms,
             })
         } else {
             // Process-based fallback (for unit tests / mock environment)
@@ -257,12 +273,15 @@ impl InferenceBackend for GenieBackend {
 
             let text = String::from_utf8_lossy(&output.stdout).to_string();
             on_token(&text)?;
+            let elapsed = start_time.elapsed().as_millis() as u64;
             let prompt_tokens = count_tokens(&prompt);
             let completion_tokens = count_tokens(&text);
             Ok(GenerateStats {
                 prompt_tokens,
                 completion_tokens,
                 total_tokens: prompt_tokens + completion_tokens,
+                time_to_first_token_ms: Some(elapsed),
+                generation_time_ms: Some(elapsed),
             })
         }
     }

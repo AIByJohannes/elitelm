@@ -166,6 +166,8 @@ impl InferenceBackend for LlamaCppBackend {
         request: GenerateRequest,
         on_token: &mut dyn FnMut(&str) -> AnyResult<()>,
     ) -> AnyResult<GenerateStats> {
+        let start_time = std::time::Instant::now();
+        let mut time_to_first_token_ms = None;
         if request.messages.is_empty() {
             return Err(LlamaCppError::EmptyMessages.into());
         }
@@ -275,6 +277,9 @@ impl InferenceBackend for LlamaCppBackend {
                 // Trim the piece to the number of bytes actually written
                 let piece = &piece[..n_written.min(piece.len() as i32) as usize];
                 on_token(piece)?;
+                if completion_tokens == 0 {
+                    time_to_first_token_ms = Some(start_time.elapsed().as_millis() as u64);
+                }
                 completion_tokens += 1;
             }
 
@@ -289,10 +294,14 @@ impl InferenceBackend for LlamaCppBackend {
 
         unsafe { sys::llama_backend_free() };
 
+        let generation_time_ms = Some(start_time.elapsed().as_millis() as u64);
+
         Ok(GenerateStats {
             prompt_tokens: prompt_token_count,
             completion_tokens,
             total_tokens: prompt_token_count + completion_tokens,
+            time_to_first_token_ms,
+            generation_time_ms,
         })
     }
 }
