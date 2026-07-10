@@ -2,17 +2,17 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use elitelm_backend_genie::GenieBackend;
 use elitelm_backend_llamacpp::LlamaCppBackend;
 use elitelm_core::{
     AppConfig, BackendConfig, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
-    CoreError, GenerateRequest, GenerateStats, InferenceBackend, create_fake_backend,
-    sse_done_line, sse_json_line,
+    CoreError, GenerateRequest, GenerateStats, InferenceBackend, ModelListResponse, ModelObject,
+    create_fake_backend, sse_done_line, sse_json_line,
 };
 use uuid::Uuid;
 
@@ -25,6 +25,8 @@ struct AppState {
 pub fn build_router(config: AppConfig, backend_name: Option<String>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(create_chat_completion))
+        .route("/v1/models", get(list_models))
+        .route("/v1/models/{model}", get(retrieve_model))
         .with_state(AppState {
             config: Arc::new(config),
             backend_name,
@@ -46,6 +48,12 @@ async fn create_chat_completion(
             .unwrap_or_else(|| state.config.default_backend.clone())
     });
     let stream = request.stream;
+    let include_usage = request
+        .stream_options
+        .as_ref()
+        .map(|o| o.include_usage)
+        .unwrap_or(false);
+
     let config = Arc::clone(&state.config);
     let backend_name = state.backend_name.clone();
     let generate_request = request.into_generate_request();
@@ -59,7 +67,14 @@ async fn create_chat_completion(
     let created = unix_timestamp();
 
     if stream {
-        let body = stream_body(&id, created, &model, &generated.pieces)?;
+        let body = stream_body(
+            &id,
+            created,
+            &model,
+            &generated.pieces,
+            generated.stats,
+            include_usage,
+        )?;
         Ok((
             [(header::CONTENT_TYPE, "text/event-stream")],
             Body::from(body),
@@ -69,6 +84,42 @@ async fn create_chat_completion(
         let response =
             ChatCompletionResponse::new(id, created, model, generated.text, generated.stats);
         Ok(Json(response).into_response())
+    }
+}
+
+async fn list_models(
+    State(state): State<AppState>,
+) -> Json<ModelListResponse> {
+    let mut data = Vec::new();
+    let created = unix_timestamp();
+    for backend_name in state.config.backends.keys() {
+        data.push(ModelObject {
+            id: backend_name.clone(),
+            object: "model".to_string(),
+            created,
+            owned_by: "elitelm".to_string(),
+        });
+    }
+    Json(ModelListResponse {
+        object: "list".to_string(),
+        data,
+    })
+}
+
+async fn retrieve_model(
+    State(state): State<AppState>,
+    Path(model_name): Path<String>,
+) -> Result<Json<ModelObject>, AppError> {
+    if state.config.backends.contains_key(&model_name) {
+        let created = unix_timestamp();
+        Ok(Json(ModelObject {
+            id: model_name,
+            object: "model".to_string(),
+            created,
+            owned_by: "elitelm".to_string(),
+        }))
+    } else {
+        Err(AppError::not_found(format!("model '{}' not found", model_name)))
     }
 }
 
@@ -97,14 +148,36 @@ fn generate_text(
     })
 }
 
-fn stream_body(id: &str, created: u64, model: &str, pieces: &[String]) -> anyhow::Result<String> {
+fn stream_body(
+    id: &str,
+    created: u64,
+    model: &str,
+    pieces: &[String],
+    stats: GenerateStats,
+    include_usage: bool,
+) -> anyhow::Result<String> {
     let mut body = String::new();
+
+    // 1. Send first chunk declaring the role
+    let first_chunk = ChatCompletionChunk::first_chunk(id, created, model);
+    body.push_str(&sse_json_line(&first_chunk)?);
+
+    // 2. Send token chunks
     for piece in pieces {
         let chunk = ChatCompletionChunk::token(id, created, model, piece);
         body.push_str(&sse_json_line(&chunk)?);
     }
+
+    // 3. Send done chunk
     let final_chunk = ChatCompletionChunk::done(id, created, model);
     body.push_str(&sse_json_line(&final_chunk)?);
+
+    // 4. Send usage chunk if requested
+    if include_usage {
+        let usage_chunk = ChatCompletionChunk::usage_chunk(id, created, model, stats.into());
+        body.push_str(&sse_json_line(&usage_chunk)?);
+    }
+
     body.push_str(sse_done_line());
     Ok(body)
 }
@@ -126,6 +199,13 @@ impl AppError {
     fn bad_request(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
             message: message.into(),
         }
     }

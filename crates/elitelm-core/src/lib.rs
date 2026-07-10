@@ -332,6 +332,11 @@ fn stream_pieces(input: &str) -> Vec<&str> {
     pieces
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StreamOptions {
+    pub include_usage: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatCompletionRequest {
     pub messages: Vec<ChatMessage>,
@@ -340,18 +345,22 @@ pub struct ChatCompletionRequest {
     #[serde(default)]
     pub max_tokens: Option<u32>,
     #[serde(default)]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(default)]
     pub temperature: Option<f32>,
     #[serde(default)]
     pub top_p: Option<f32>,
     #[serde(default)]
     pub stream: bool,
+    #[serde(default)]
+    pub stream_options: Option<StreamOptions>,
 }
 
 impl ChatCompletionRequest {
     pub fn into_generate_request(self) -> GenerateRequest {
         GenerateRequest {
             messages: self.messages,
-            max_tokens: self.max_tokens,
+            max_tokens: self.max_completion_tokens.or(self.max_tokens),
             temperature: self.temperature,
             top_p: self.top_p,
         }
@@ -439,9 +448,29 @@ pub struct ChatCompletionChunk {
     pub created: u64,
     pub model: String,
     pub choices: Vec<ChatCompletionChunkChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<ChatCompletionUsage>,
 }
 
 impl ChatCompletionChunk {
+    pub fn first_chunk(id: impl Into<String>, created: u64, model: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            object_type: "chat.completion.chunk".to_string(),
+            created,
+            model: model.into(),
+            choices: vec![ChatCompletionChunkChoice {
+                index: 0,
+                delta: ChatCompletionChunkDelta {
+                    role: Some("assistant".to_string()),
+                    content: Some("".to_string()),
+                },
+                finish_reason: None,
+            }],
+            usage: None,
+        }
+    }
+
     pub fn token(
         id: impl Into<String>,
         created: u64,
@@ -461,6 +490,7 @@ impl ChatCompletionChunk {
                 },
                 finish_reason: None,
             }],
+            usage: None,
         }
     }
 
@@ -478,8 +508,39 @@ impl ChatCompletionChunk {
                 },
                 finish_reason: Some("stop".to_string()),
             }],
+            usage: None,
         }
     }
+
+    pub fn usage_chunk(
+        id: impl Into<String>,
+        created: u64,
+        model: impl Into<String>,
+        usage: ChatCompletionUsage,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            object_type: "chat.completion.chunk".to_string(),
+            created,
+            model: model.into(),
+            choices: vec![],
+            usage: Some(usage),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelObject {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub owned_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelListResponse {
+    pub object: String,
+    pub data: Vec<ModelObject>,
 }
 
 pub fn sse_json_line<T: Serialize>(value: &T) -> AnyResult<String> {

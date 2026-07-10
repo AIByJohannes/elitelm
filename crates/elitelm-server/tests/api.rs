@@ -125,6 +125,104 @@ backends:
     );
 }
 
+#[tokio::test]
+async fn list_models() {
+    let app = build_router(test_config(), Some("fake".to_string()));
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/models")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["object"], "list");
+    let data = value["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["id"], "fake");
+    assert_eq!(data[0]["object"], "model");
+    assert_eq!(data[0]["owned_by"], "elitelm");
+    assert!(data[0]["created"].is_number());
+}
+
+#[tokio::test]
+async fn retrieve_model() {
+    let app = build_router(test_config(), Some("fake".to_string()));
+    
+    // Success
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/models/fake")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["id"], "fake");
+    assert_eq!(value["object"], "model");
+    assert_eq!(value["owned_by"], "elitelm");
+
+    // Not Found
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/models/unknown")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn streaming_chat_completions_with_usage() {
+    let app = build_router(test_config(), Some("fake".to_string()));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            r#"{"model":"fake","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hello stream with usage"}]}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    
+    // Verify first chunk has role: "assistant" and content: ""
+    assert!(text.contains(r#""delta":{"role":"assistant","content":""}"#));
+    
+    // Verify we have a usage chunk at the end with empty choices
+    assert!(text.contains(r#""choices":[]"#));
+    assert!(text.contains(r#""usage":{"prompt_tokens":"#));
+    assert!(text.ends_with("data: [DONE]\n\n"));
+}
+
+#[tokio::test]
+async fn chat_completions_max_completion_tokens() {
+    let app = build_router(test_config(), Some("fake".to_string()));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            r#"{"model":"fake","max_completion_tokens":10,"messages":[{"role":"user","content":"hello api"}]}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["object"], "chat.completion");
+}
+
 fn yaml_path(path: &std::path::Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
