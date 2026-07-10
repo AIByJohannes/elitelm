@@ -154,3 +154,97 @@ fn htp_template() -> &'static str {
   ]
 }"#
 }
+
+#[test]
+fn list_backends() {
+    let mut cmd = Command::cargo_bin("elitelm-cli").unwrap();
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap();
+
+    let output = cmd.current_dir(workspace_root)
+        .arg("list")
+        .arg("--config")
+        .arg("elitelm.example.yaml")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("fake"));
+    assert!(stdout.contains("KIND"));
+}
+
+#[test]
+fn show_backend() {
+    let mut cmd = Command::cargo_bin("elitelm-cli").unwrap();
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap();
+
+    let output = cmd.current_dir(workspace_root)
+        .arg("show")
+        .arg("fake")
+        .arg("--config")
+        .arg("elitelm.example.yaml")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Model: fake"));
+    assert!(stdout.contains("Kind:  fake"));
+}
+
+#[test]
+fn registry_model_lifecycle() {
+    let models_dir = elitelm_core::get_elitelm_models_dir();
+    std::fs::create_dir_all(&models_dir).unwrap();
+    let model_file = models_dir.join("test-model_latest.gguf");
+    std::fs::write(&model_file, "dummy gguf content").unwrap();
+
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap();
+
+    // 1. Verify it is listed
+    let mut cmd_list = Command::cargo_bin("elitelm-cli").unwrap();
+    let output_list = cmd_list.current_dir(workspace_root)
+        .arg("list")
+        .arg("--config")
+        .arg("elitelm.example.yaml")
+        .output()
+        .unwrap();
+    assert!(output_list.status.success());
+    let stdout_list = String::from_utf8(output_list.stdout).unwrap();
+    assert!(stdout_list.contains("test-model:latest"));
+
+    // 2. Verify we can show it
+    let mut cmd_show = Command::cargo_bin("elitelm-cli").unwrap();
+    let output_show = cmd_show.current_dir(workspace_root)
+        .arg("show")
+        .arg("test-model:latest")
+        .arg("--config")
+        .arg("elitelm.example.yaml")
+        .output()
+        .unwrap();
+    assert!(output_show.status.success());
+    let stdout_show = String::from_utf8(output_show.stdout).unwrap();
+    assert!(stdout_show.contains("Model: test-model:latest"));
+    assert!(stdout_show.contains("Kind:  llamacpp (registry)"));
+
+    // 3. Remove it and verify it's gone
+    let mut cmd_rm = Command::cargo_bin("elitelm-cli").unwrap();
+    let output_rm = cmd_rm.current_dir(workspace_root)
+        .arg("rm")
+        .arg("test-model:latest")
+        .output()
+        .unwrap();
+    assert!(output_rm.status.success());
+    let stdout_rm = String::from_utf8(output_rm.stdout).unwrap();
+    assert!(stdout_rm.contains("Removed model 'test-model:latest'"));
+    assert!(!model_file.exists());
+}

@@ -12,7 +12,7 @@ use elitelm_backend_llamacpp::LlamaCppBackend;
 use elitelm_core::{
     AppConfig, BackendConfig, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
     CoreError, GenerateRequest, GenerateStats, InferenceBackend, ModelListResponse, ModelObject,
-    create_fake_backend, sse_done_line, sse_json_line,
+    create_fake_backend, get_elitelm_models_dir, model_filename, sse_done_line, sse_json_line,
 };
 use uuid::Uuid;
 
@@ -100,6 +100,38 @@ async fn list_models(
             owned_by: "elitelm".to_string(),
         });
     }
+
+    // Include downloaded registry models
+    let models_dir = get_elitelm_models_dir();
+    if models_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(models_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map_or(false, |ext| ext == "gguf") {
+                    if let Some(stem) = path.file_stem() {
+                        let filename = stem.to_string_lossy().to_string();
+                        let reconstructed = if let Some(idx) = filename.rfind('_') {
+                            let mut r = filename.clone();
+                            r.replace_range(idx..=idx, ":");
+                            r
+                        } else {
+                            filename.clone()
+                        };
+
+                        if !state.config.backends.contains_key(&reconstructed) {
+                            data.push(ModelObject {
+                                id: reconstructed,
+                                object: "model".to_string(),
+                                created,
+                                owned_by: "elitelm".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Json(ModelListResponse {
         object: "list".to_string(),
         data,
@@ -110,7 +142,18 @@ async fn retrieve_model(
     State(state): State<AppState>,
     Path(model_name): Path<String>,
 ) -> Result<Json<ModelObject>, AppError> {
-    if state.config.backends.contains_key(&model_name) {
+    let exists_in_config = state.config.backends.contains_key(&model_name);
+    let mut exists_on_disk = false;
+
+    if !exists_in_config {
+        let models_dir = get_elitelm_models_dir();
+        let filename = model_filename(&model_name);
+        if models_dir.join(&filename).exists() {
+            exists_on_disk = true;
+        }
+    }
+
+    if exists_in_config || exists_on_disk {
         let created = unix_timestamp();
         Ok(Json(ModelObject {
             id: model_name,
@@ -255,7 +298,40 @@ fn create_backend_for_server(
     config: &AppConfig,
     requested_backend: Option<&str>,
 ) -> anyhow::Result<Box<dyn InferenceBackend>> {
+    if let Some(name) = requested_backend {
+        if config.backends.contains_key(name) {
+            // Exist in config file, load as configured
+            let (_, backend_config) = config.backend(Some(name))?;
+            return build_backend_from_config(name, backend_config);
+        }
+
+        // Not in config file. Check if it exists as a pulled GGUF model.
+        let models_dir = get_elitelm_models_dir();
+        let filename = model_filename(name);
+        let local_path = models_dir.join(&filename);
+        if local_path.exists() {
+            let llama_config = elitelm_core::LlamaCppBackendConfig {
+                model: local_path,
+                n_threads: None,
+                n_ctx: None,
+                n_batch: None,
+                use_mmap: true,
+            };
+            return Ok(Box::new(LlamaCppBackend::new(
+                name.to_string(),
+                llama_config,
+            )?));
+        }
+    }
+
     let (name, backend_config) = config.backend(requested_backend)?;
+    build_backend_from_config(name, backend_config)
+}
+
+fn build_backend_from_config(
+    name: &str,
+    backend_config: &BackendConfig,
+) -> anyhow::Result<Box<dyn InferenceBackend>> {
     match backend_config {
         BackendConfig::Fake(fake_config) => Ok(create_fake_backend(name, fake_config)),
         BackendConfig::Genie(genie_config) => Ok(Box::new(GenieBackend::new(

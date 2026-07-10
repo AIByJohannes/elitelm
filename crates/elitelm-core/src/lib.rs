@@ -551,6 +551,39 @@ pub fn sse_done_line() -> &'static str {
     "data: [DONE]\n\n"
 }
 
+pub fn get_elitelm_models_dir() -> PathBuf {
+    let base = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .or_else(|| {
+                let home_drive = std::env::var_os("HOMEDRIVE");
+                let home_path = std::env::var_os("HOMEPATH");
+                if let (Some(drive), Some(path)) = (home_drive, home_path) {
+                    let mut p = PathBuf::from(drive);
+                    p.push(path);
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+    } else {
+        std::env::var_os("HOME").map(PathBuf::from)
+    };
+
+    let mut path = base.unwrap_or_else(|| PathBuf::from("."));
+    path.push(".elitelm");
+    path.push("models");
+    path
+}
+
+pub fn model_filename(model_name: &str) -> String {
+    let sanitized = model_name
+        .replace(':', "_")
+        .replace('/', "_")
+        .replace('\\', "_");
+    format!("{}.gguf", sanitized)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
