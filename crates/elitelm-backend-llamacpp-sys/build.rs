@@ -188,7 +188,7 @@ fn find_ninja() -> Option<PathBuf> {
 fn which(exe: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
-        let candidate = PathBuf::from(dir).join(exe);
+        let candidate = dir.join(exe);
         if candidate.exists() {
             return Some(candidate);
         }

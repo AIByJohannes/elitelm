@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::ptr::NonNull;
 
 use anyhow::{Context, Result as AnyResult};
-use elitelm_core::{GenerateRequest, GenerateStats, InferenceBackend, LlamaCppBackendConfig};
 use elitelm_backend_llamacpp_sys as sys;
+use elitelm_core::{GenerateRequest, GenerateStats, InferenceBackend, LlamaCppBackendConfig};
 use thiserror::Error;
 
 /// Errors specific to the llama.cpp backend.
@@ -39,14 +39,12 @@ impl LlamaModel {
         let c_path = CString::new(path.to_string_lossy().replace('\\', "/"))
             .context("model path contains a null byte")?;
         let raw = unsafe { sys::llama_model_load_from_file(c_path.as_ptr(), params) };
-        NonNull::new(raw)
-            .map(Self)
-            .ok_or_else(|| {
-                LlamaCppError::LoadFailed {
-                    path: path.to_path_buf(),
-                }
-                .into()
-            })
+        NonNull::new(raw).map(Self).ok_or_else(|| {
+            LlamaCppError::LoadFailed {
+                path: path.to_path_buf(),
+            }
+            .into()
+        })
     }
 
     fn as_ptr(&self) -> *mut sys::llama_model {
@@ -211,8 +209,8 @@ impl InferenceBackend for LlamaCppBackend {
                 prompt.len() as i32,
                 tokens.as_mut_ptr(),
                 tokens.len() as i32,
-                true,  // add_special (BOS)
-                true,  // parse_special
+                true, // add_special (BOS)
+                true, // parse_special
             )
         };
         if n_tokens < 0 {
@@ -223,9 +221,7 @@ impl InferenceBackend for LlamaCppBackend {
 
         // ── Choose sampler ────────────────────────────────────────────────
         let sampler = match (request.temperature, request.top_p) {
-            (Some(t), top_p) if t > 0.0 => {
-                LlamaSampler::with_temperature(t, top_p.unwrap_or(0.9))
-            }
+            (Some(t), top_p) if t > 0.0 => LlamaSampler::with_temperature(t, top_p.unwrap_or(0.9)),
             _ => LlamaSampler::greedy(),
         };
 
@@ -238,9 +234,8 @@ impl InferenceBackend for LlamaCppBackend {
 
         // ── Evaluate prompt batch ─────────────────────────────────────────
         {
-            let batch = unsafe {
-                sys::llama_batch_get_one(tokens.as_mut_ptr(), tokens.len() as i32)
-            };
+            let batch =
+                unsafe { sys::llama_batch_get_one(tokens.as_mut_ptr(), tokens.len() as i32) };
             let rc = unsafe { sys::llama_decode(ctx.as_ptr(), batch) };
             if rc != 0 {
                 return Err(LlamaCppError::DecodeFailed(rc).into());

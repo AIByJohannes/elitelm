@@ -14,7 +14,9 @@ fn test_model_path() -> Option<PathBuf> {
         }
     }
     // Fallback: Gemma model in LM Studio cache
-    let fallback = PathBuf::from(r"C:\Users\johan\.cache\lm-studio\models\lmstudio-community\gemma-2-2b-it-GGUF\gemma-2-2b-it-Q4_K_M.gguf");
+    let fallback = PathBuf::from(
+        r"C:\Users\johan\.cache\lm-studio\models\lmstudio-community\gemma-2-2b-it-GGUF\gemma-2-2b-it-Q4_K_M.gguf",
+    );
     if fallback.exists() {
         return Some(fallback);
     }
@@ -83,5 +85,8 @@ fn real_inference_produces_output() {
     assert!(stats.completion_tokens > 0);
     assert!(stats.prompt_tokens > 0);
     eprintln!("Output: {output:?}");
-    eprintln!("Stats: prompt={} completion={}", stats.prompt_tokens, stats.completion_tokens);
+    eprintln!(
+        "Stats: prompt={} completion={}",
+        stats.prompt_tokens, stats.completion_tokens
+    );
 }

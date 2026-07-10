@@ -26,11 +26,8 @@ pub struct GenieDialogHandle(pub *mut c_void);
 unsafe impl Send for GenieDialogHandle {}
 unsafe impl Sync for GenieDialogHandle {}
 
-pub type GenieDialogQueryCallback = unsafe extern "C" fn(
-    response: *const c_char,
-    sentence_code: i32,
-    user_data: *const c_void,
-);
+pub type GenieDialogQueryCallback =
+    unsafe extern "C" fn(response: *const c_char, sentence_code: i32, user_data: *const c_void);
 
 // ── API Struct ───────────────────────────────────────────────────────────────
 
@@ -47,9 +44,8 @@ pub struct GenieApi {
         config_handle: *mut GenieDialogConfigHandle,
     ) -> GenieStatus,
 
-    pub dialog_config_free: unsafe extern "C" fn(
-        config_handle: GenieDialogConfigHandle,
-    ) -> GenieStatus,
+    pub dialog_config_free:
+        unsafe extern "C" fn(config_handle: GenieDialogConfigHandle) -> GenieStatus,
 
     pub dialog_create: unsafe extern "C" fn(
         config_handle: GenieDialogConfigHandle,
@@ -64,16 +60,18 @@ pub struct GenieApi {
         user_data: *const c_void,
     ) -> GenieStatus,
 
-    pub dialog_reset: unsafe extern "C" fn(
-        dialog_handle: GenieDialogHandle,
-    ) -> GenieStatus,
+    pub dialog_reset: unsafe extern "C" fn(dialog_handle: GenieDialogHandle) -> GenieStatus,
 
-    pub dialog_free: unsafe extern "C" fn(
-        dialog_handle: GenieDialogHandle,
-    ) -> GenieStatus,
+    pub dialog_free: unsafe extern "C" fn(dialog_handle: GenieDialogHandle) -> GenieStatus,
 }
 
 impl GenieApi {
+    /// Loads the required Genie C API symbols from `dll_path`.
+    ///
+    /// # Safety
+    ///
+    /// The DLL must be a compatible Qualcomm Genie library whose exported
+    /// symbols use the function signatures declared by this wrapper.
     pub unsafe fn load(dll_path: &Path) -> Result<Self> {
         let lib = unsafe { Library::new(dll_path)? };
         let lib = Arc::new(lib);
