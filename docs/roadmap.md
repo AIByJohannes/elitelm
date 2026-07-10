@@ -98,11 +98,11 @@ Genie configuration should model bundles of QAIRT context binaries, tokenizer fi
 
 ## Phase 0: Preserve Current Behavior
 
-- [ ] Document current Python CLI behavior, FastAPI endpoints, config fields, and expected streaming response shape.
-- [ ] Capture the current Genie bundle layout under `cpu_and_mobile/llama-3.2-3b-npu-complete`.
-- [ ] Capture the current PowerShell setup flow from `RunLlm.ps1`, `LlmUtils.ps1`, and related scripts.
-- [ ] Define smoke prompts and expected success criteria for CPU and NPU paths.
-- [ ] Decide which Python tests are behavior references for the Rust rewrite.
+- [x] Document current Python CLI behavior, FastAPI endpoints, config fields, and expected streaming response shape.
+- [x] Capture the current Genie bundle layout under `cpu_and_mobile/llama-3.2-3b-npu-complete`.
+- [x] Capture the current PowerShell setup flow from `RunLlm.ps1`, `LlmUtils.ps1`, and related scripts.
+- [x] Define smoke prompts and expected success criteria for CPU and NPU paths.
+- [x] Decide which Python tests are behavior references for the Rust rewrite.
 
 Exit criteria:
 
@@ -110,14 +110,14 @@ Exit criteria:
 
 ## Phase 1: Rust Workspace and Product Shell
 
-- [ ] Add a Cargo workspace with `elitelm-core`, `elitelm-cli`, and `elitelm-server`.
-- [ ] Implement config loading and validation in `elitelm-core`.
-- [ ] Implement OpenAI-compatible request/response types in `elitelm-core`.
-- [ ] Implement chat-template and message formatting behavior needed by the current models.
-- [ ] Add a placeholder backend implementation for CLI/server wiring tests.
-- [ ] Add `elitelm run --backend <name>`.
-- [ ] Add `elitelm serve --backend <name>`.
-- [ ] Add parity tests for config validation and OpenAI response serialization.
+- [x] Add a Cargo workspace with `elitelm-core`, `elitelm-cli`, and `elitelm-server`.
+- [x] Implement config loading and validation in `elitelm-core`.
+- [x] Implement OpenAI-compatible request/response types in `elitelm-core`.
+- [x] Implement chat-template and message formatting behavior needed by the current models.
+- [x] Add a placeholder backend implementation for CLI/server wiring tests.
+- [x] Add `elitelm run --backend <name>`.
+- [x] Add `elitelm serve --backend <name>`.
+- [x] Add parity tests for config validation and OpenAI response serialization.
 
 Exit criteria:
 
@@ -125,14 +125,14 @@ Exit criteria:
 
 ## Phase 2: Process-Based Genie Backend
 
-- [ ] Add `elitelm-backend-genie`.
-- [ ] Port PowerShell Genie bundle preparation into Rust as `elitelm prepare-genie-bundle`.
-- [ ] Validate required Genie files before execution.
-- [ ] Copy or locate Windows `hexagon-v73` files, `aarch64-windows-msvc` libraries, and `genie-t2t-run.exe` according to the existing bundle flow.
-- [ ] Implement `elitelm run --backend genie` using `std::process::Command` around `genie-t2t-run.exe`.
-- [ ] Implement server generation through the process backend.
-- [ ] Surface clear errors for missing SDK roots, missing configs, missing binaries, and nonzero Genie exits.
-- [ ] Add a Snapdragon Windows smoke test for a known Genie bundle.
+- [x] Add `elitelm-backend-genie`.
+- [x] Port PowerShell Genie bundle preparation into Rust as `elitelm prepare-genie-bundle`.
+- [x] Validate required Genie files before execution.
+- [x] Copy or locate Windows `hexagon-v73` files, `aarch64-windows-msvc` libraries, and `genie-t2t-run.exe` according to the existing bundle flow.
+- [x] Implement `elitelm run --backend genie` using `std::process::Command` around `genie-t2t-run.exe`.
+- [x] Implement server generation through the process backend.
+- [x] Surface clear errors for missing SDK roots, missing configs, missing binaries, and nonzero Genie exits.
+- [x] Add a Snapdragon Windows smoke test for a known Genie bundle.
 
 Exit criteria:
 
@@ -140,14 +140,14 @@ Exit criteria:
 
 ## Phase 3: llama.cpp CPU Backend
 
-- [ ] Add `elitelm-backend-llamacpp-sys`.
-- [ ] Generate bindgen bindings over `llama.cpp/include/llama.h`.
-- [ ] Add build/link instructions for the checked-out llama.cpp submodule.
-- [ ] Add `elitelm-backend-llamacpp` as a safe wrapper over model load, context creation, tokenization, decode, sampling, and teardown.
-- [ ] Implement `elitelm run --backend llamacpp`.
-- [ ] Implement `elitelm serve --backend llamacpp`.
-- [ ] Add CPU smoke tests using a small GGUF model fixture or documented local test model.
-- [ ] Add benchmarking for tokens/sec, time to first token, and memory footprint.
+- [x] Add `elitelm-backend-llamacpp-sys`.
+- [x] Generate bindgen bindings over `llama.cpp/include/llama.h`.
+- [x] Add build/link instructions for the checked-out llama.cpp submodule.
+- [x] Add `elitelm-backend-llamacpp` as a safe wrapper over model load, context creation, tokenization, decode, sampling, and teardown.
+- [x] Implement `elitelm run --backend llamacpp`.
+- [x] Implement `elitelm serve --backend llamacpp`.
+- [x] Add CPU smoke tests using a small GGUF model fixture or documented local test model.
+- [x] Add benchmarking for tokens/sec, time to first token, and memory footprint.
 
 Exit criteria:
 
@@ -155,12 +155,12 @@ Exit criteria:
 
 ## Phase 4: OpenAI-Compatible axum Server
 
-- [ ] Replace the FastAPI runtime with `elitelm-server`.
-- [ ] Implement `/v1/chat/completions`.
-- [ ] Support streaming and non-streaming responses.
-- [ ] Preserve the current request compatibility surface where practical.
-- [ ] Add structured logging and backend selection diagnostics.
-- [ ] Add integration tests for request validation, response schema, streaming chunks, and backend errors.
+- [x] Replace the FastAPI runtime with `elitelm-server`.
+- [x] Implement `/v1/chat/completions`.
+- [x] Support streaming and non-streaming responses.
+- [x] Preserve the current request compatibility surface where practical.
+- [x] Add structured logging and backend selection diagnostics.
+- [x] Add integration tests for request validation, response schema, streaming chunks, and backend errors.
 
 Exit criteria:
 
@@ -168,8 +168,8 @@ Exit criteria:
 
 ## Phase 5: Native Genie Bridge
 
-- [ ] Add `elitelm-backend-genie-sys`.
-- [ ] Create a stable C ABI bridge:
+- [x] Add `elitelm-backend-genie-sys`.
+- [x] Create a stable C ABI bridge:
 
 ```text
 crates/elitelm-backend-genie-sys/
@@ -180,12 +180,12 @@ crates/elitelm-backend-genie-sys/
 `-- src/lib.rs
 ```
 
-- [ ] Compile the bridge with the `cc` crate using `.cpp(true)`.
-- [ ] Read `QNN_SDK_ROOT` or explicit config paths during build/runtime validation.
-- [ ] Keep the Rust boundary C-compatible instead of binding Qualcomm C++ types directly.
-- [ ] Implement safe Rust ownership around native handles.
-- [ ] Add parity tests comparing process-based Genie output behavior with native bridge behavior.
-- [ ] Retire the process backend only after the native bridge proves stable.
+- [x] Compile the bridge with the `cc` crate using `.cpp(true)`.
+- [x] Read `QNN_SDK_ROOT` or explicit config paths during build/runtime validation.
+- [x] Keep the Rust boundary C-compatible instead of binding Qualcomm C++ types directly.
+- [x] Implement safe Rust ownership around native handles.
+- [x] Add parity tests comparing process-based Genie output behavior with native bridge behavior.
+- [x] Retire the process backend only after the native bridge proves stable.
 
 Exit criteria:
 
@@ -193,13 +193,13 @@ Exit criteria:
 
 ## Phase 6: Migration Cutover
 
-- [ ] Update README and setup docs to make Rust the primary installation and execution path.
-- [ ] Move Python implementation into an archived/reference location or remove it after parity is proven.
-- [ ] Remove ONNX Runtime GenAI from primary dependencies.
-- [ ] Remove PowerShell runtime dependency from normal operation.
-- [ ] Keep scripts only where they are still useful for developer setup or diagnostics.
-- [ ] Add release packaging for Windows ARM64.
-- [ ] Add CI jobs for formatting, clippy, unit tests, and server API tests.
+- [x] Update README and setup docs to make Rust the primary installation and execution path.
+- [x] Move Python implementation into an archived/reference location or remove it after parity is proven.
+- [x] Remove ONNX Runtime GenAI from primary dependencies.
+- [x] Remove PowerShell runtime dependency from normal operation.
+- [x] Keep scripts only where they are still useful for developer setup or diagnostics.
+- [x] Add release packaging for Windows ARM64.
+- [x] Add CI jobs for formatting, clippy, unit tests, and server API tests.
 
 Exit criteria:
 

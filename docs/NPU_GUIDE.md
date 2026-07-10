@@ -2,32 +2,30 @@
 
 > ⚠️ **Info: NPU inference is currently NOT recommended for most use cases.**
 >
-> My benchmarks show that the **CPU is significantly faster** than the NPU for LLM inference with the current Genie runtime:
+> Benchmarks show that the **CPU is significantly faster** than the NPU for LLM inference with the current Genie runtime:
 >
 > | Metric            | CPU        | NPU        | Speedup   |
 > |-------------------|------------|------------|-----------|
 > | Tokens/Sec        | 36.64      | 1.08       | 0.03x     |
 > | Time to First (s) | 0.0000     | 0.9710     | 0.00x     |
 >
-> **The CPU is ~34x faster than the NPU** in my tests. This is because Qualcomm optimized NPU for power efficiency, sacrificing generation speed. 
+> **The CPU is ~34x faster than the NPU** in tests. This is because Qualcomm optimized the NPU for power efficiency, sacrificing generation speed. 
 >
-> **Recommendation**: Use CPU inference (`chat_cli.py` or `elitelm.ChatSession`) for best performance. The NPU scripts are provided for experimental purposes only.
+> **Recommendation**: Use CPU inference (`crates/elitelm-backend-llamacpp` or `llamacpp_cpu` backend) for best performance. The NPU backend is provided for experimental purposes only.
 
 ---
 
-This guide details how to run Large Language Models (LLMs) on the **Qualcomm Hexagon NPU** using **EliteLM**. It leverages the **Genie** (Gen AI Inference Extensions) architecture directly via the `genie-t2t-run` executable for experimental NPU inference on Snapdragon X Elite devices.
+This guide details how to run Large Language Models (LLMs) on the **Qualcomm Hexagon NPU** using **EliteLM**. It leverages the **Genie** (Gen AI Inference Extensions) architecture natively via the `Genie.dll` dynamic library.
 
 ## 1. Why Use the NPU? (Experimental)
-
-> ⚠️ **Note**: The theoretical benefits below are NOT currently realized with the Genie subprocess workflow. See the warning above.
 
 The Hexagon NPU (Neural Processing Unit) is a specialized accelerator for INT8 matrix operations. It offloads compute from the CPU, extending battery life.
 The power efficiency comes at the cost of performance. 
 
 ### Genie Native vs. ONNX Runtime
-EliteLM now uses the **Genie Native** workflow, which differs from `onnxruntime-genai`:
-*   **Genie Native**: Uses the `genie-t2t-run` executable directly. This offers the most direct path to the NPU hardware and often supports features or optimizations before they reach ONNX Runtime.
-*   **Context Binaries**: Executes the entire model as a pre-compiled "context binary" on the NPU.
+EliteLM uses the **Genie Native** workflow:
+*   **Genie Native**: Interacts directly with `Genie.dll` in-process using dynamic loading (`libloading` in Rust).
+*   **Context Binaries**: Executes the entire model as pre-compiled "context binaries" (`*.bin`) on the NPU.
 
 ---
 
@@ -39,23 +37,21 @@ EliteLM now uses the **Genie Native** workflow, which differs from `onnxruntime-
 *   **Memory**: At least 16GB RAM recommended (NPU shares system memory).
 
 ### Software
-1.  **Python 3.11**: The supported version for the Qualcomm AI stack.
-2.  **Visual C++ Redistributable (ARM64)**: Required for QNN libraries.
-3.  **Qualcomm AI Engine Direct SDK (QNN)**:
+1.  **Visual C++ Redistributable (ARM64)**: Required for QNN libraries.
+2.  **Qualcomm AI Engine Direct SDK (QNN)**:
     *   Download from [Qualcomm Developer Network](https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk).
     *   Extract to `qairt/` in the project root (e.g., `qairt/2.37.0.250724`).
 
 ### Model Requirements 
-You need a **Genie-compatible model bundle** containing **QNN context binaries** and the Genie executable.
+You need a **Genie-compatible model bundle** containing **QNN context binaries** and tokenizers.
 
 **Recommended Model (Llama 3.2 3B):**
 We recommend using the `Volko76/Llama-3.2-3B-Genie-Compatible-QNN-Binaries` repository or generating your own using Qualcomm AI Hub.
 
 ### Genie Bundle Layout
-The runtime expects the following file structure in the model directory (e.g., `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle`).
+The runtime expects the following file structure in the model directory (e.g., `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle`):
 
 #### Executables & Configs
-*   `genie-t2t-run.exe`: The main inference executable.
 *   `genie_config.json`: Configuration defining model parameters and context binary paths.
 *   `htp_backend_ext_config.json`: QNN backend configuration.
 *   `tokenizer.json`: Hugging Face style tokenizer definition.
@@ -64,7 +60,7 @@ The runtime expects the following file structure in the model directory (e.g., `
 *   `*.bin` (e.g., `llama_v3_2_3b_instruct_part_1_of_3.bin`): The model compiled for Hexagon.
 
 #### Required DLLs
-These libraries must be present in the same directory (typically copied from the QNN SDK `lib` and `bin` folders):
+These libraries must be copied to the bundle directory (typically automated by `prepare-genie-bundle` CLI command):
 
 | Category | Files |
 | :--- | :--- |
@@ -78,52 +74,53 @@ These libraries must be present in the same directory (typically copied from the
 
 ---
 
-## 3. Configuration
+## 3. Preparation & Configuration
 
-The `scripts/run_npu_model.py` script is hardcoded to look for the Genie bundle in:
-`cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle`
+Instead of manually copying QNN SDK libraries and preparing configuration files, use the EliteLM CLI tool to initialize the bundle automatically:
 
-Ensure your model files are placed there.
+```bash
+cargo run --bin elitelm-cli -- prepare-genie-bundle --config elitelm.genie.example.yaml --backend genie_npu
+```
+
+This subcommand will:
+1. Parse the template files listed in `elitelm.genie.example.yaml`.
+2. Generate the actual `genie_config.json` and `htp_backend_ext_config.json` in the bundle directory.
+3. Locate the QNN SDK root path and copy all required `*.dll` dependencies into the bundle directory.
 
 ---
 
 ## 4. Running Inference (Experimental)
 
-> ⚠️ **Reminder**: CPU inference is recommended. Use `python chat_cli.py` for best performance.
+### Running Prompts via CLI
+To run a prompt on the NPU backend:
 
-### Single Prompt (NPU)
-Use the wrapper script to run a prompt on the NPU:
 ```bash
-python scripts/run_npu_model.py "Why is the sky blue?"
+cargo run --bin elitelm-cli -- run genie_npu "Why is the sky blue?" --config elitelm.genie.example.yaml
 ```
 
-This script wraps `genie-t2t-run.exe`, handling prompt formatting (Llama 3.2 style) and output parsing.
+### Running the API Server
+To expose the NPU backend via the Axum OpenAI-compatible server:
 
-### CPU vs NPU Comparison
-To benchmark CPU vs NPU performance:
 ```bash
-python scripts/compare_cpu_npu.py "Your prompt here"
+cargo run --bin elitelm-server -- serve --config elitelm.genie.example.yaml
 ```
 
-### System Prompts
-You can also provide a system prompt:
+### CPU vs NPU Benchmark
+To run a comparison benchmark:
+
 ```bash
-python scripts/run_npu_model.py "Who are you?" --system "You are a helpful assistant named EliteLM."
+cargo run --bin elitelm-cli -- benchmark --config elitelm.genie.example.yaml
 ```
 
 ---
 
-## 5. Technical Details
-
-### The "Context Binary"
-The files named `prompt_*_qnn_ctx.onnx` and `token_*_qnn_ctx.onnx` are wrappers around **QNN Context Binaries**.
 ## 5. Technical Details
 
 ### The "Context Binary"
 The files named `*.bin` in the Genie bundle are **QNN Context Binaries**.
 *   These contain the model graph *compiled specifically for the Hexagon DSP*.
 *   They are non-portable (specific to the Snapdragon architecture).
-*   `genie-t2t-run` loads these binaries and delegates execution directly to the QNN HTP backend.
+*   `Genie.dll` loads these binaries and delegates execution directly to the QNN HTP backend.
 
 ### Memory Constraints
 The Hexagon NPU has limited directly addressable memory (often ~4GB for the NPU subsystem).
@@ -136,15 +133,16 @@ The Hexagon NPU has limited directly addressable memory (often ~4GB for the NPU 
 
 ### Common Errors
 
-**1. `Genie executable not found`**
-*   **Cause**: The `genie-t2t-run.exe` file is missing from the bundle directory.
-*   **Fix**: Ensure you have copied the executable and all required DLLs to `cpu_and_mobile/llama-3.2-3b-npu-complete/genie_bundle`.
+**1. `Genie native library does not exist`**
+*   **Cause**: `Genie.dll` is missing from the bundle folder.
+*   **Fix**: Run the `prepare-genie-bundle` subcommand to correctly copy all dependencies from your QNN SDK.
 
-**2. `Unable to load backend` / `QNN HTP backend failed to load`**
-*   **Cause**: Missing DLL dependencies in the bundle folder.
+**2. `QNN HTP backend failed to load` / `Unable to load backend`**
+*   **Cause**: Missing or mismatched DLL dependencies in the bundle folder.
 *   **Fix**:
     *   Install **Visual C++ Redistributable for ARM64**.
-    *   Ensure all DLLs from the QNN SDK (`lib/hexagon-v73/unsigned/*` and `lib/aarch64-windows-msvc/*`) are copied to the bundle folder.
+    *   Verify the `qairt_sdk_root` in your config points to a valid Qualcomm AI SDK (e.g., `2.37.0.250724`).
+    *   Run `prepare-genie-bundle` again to refresh copied DLLs.
 
 **3. `[WARN] "Unable to initialize logging in backend extensions."`**
 *   **Cause**: Benign warning from the QNN backend.
